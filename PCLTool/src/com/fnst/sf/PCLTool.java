@@ -8,3 +8,7 @@ public class PCLTool
 class gaotaotest
 {
 }
+
+class xxx
+{
+}

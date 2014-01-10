@@ -5,6 +5,6 @@ public class PCLTool
 
 }
 
-public class gaotaotest
+class gaotaotest
 {
 }

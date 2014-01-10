@@ -12,5 +12,5 @@ class gaotaotest
 
 class xxx
 {
-	String x = "lailihua";
+	String x = "lailihua123";
 }

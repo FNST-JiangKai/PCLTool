@@ -12,6 +12,19 @@ public class RT_test
 	static byte COMMANDNODE = 0;
 	static byte JUDGENODE = 1;
 	
+	static String TRUE = "true";
+	static String FALSE = "false";
+	
+	/*
+	 * 支持的命令集
+	 */
+	
+	static String IF = "if";
+	static String ELSE = "else";
+	
+	
+	CommandTree cmdTree = new CommandTree();
+	
 	public RT_test( String RTTestCaseFilePath )
 	{
 		;
@@ -25,6 +38,18 @@ public class RT_test
 		public ParaseTestCaseFile( String ParaseTestCaseFile )
 		{
 			;
+		}
+	}
+	
+	private class MakeCommandTree
+	{
+		public MakeCommandTree(String command)
+		{
+			switch(command)
+			{
+			case "":
+				break;
+			}
 		}
 	}
 	
@@ -45,20 +70,39 @@ public class RT_test
 	private class CommandTree
 	{
 		CommandNode Root = null;
-		Stack <CommandNode> JudgeNodeList = null;
+		Stack <CommandNode> JudgeNodeStack = null;
+		
+		public CommandTree()
+		{
+			Root = null;
+			JudgeNodeStack = null;
+		}
 		
 		public void appendNode(CommandNode a)
 		{
-			if(a.NodeStyle == COMMANDNODE)
+			CommandNode pNode = null;		//当前插入节点指针
+			if(Root == null)
 			{
-				if(Root == null)
-				{
-					Root = a;
-				}
+				Root = a;
+				pNode = a;
 			}
 			else
 			{
-				;
+				pNode = Root;
+				for (;pNode.Next.get(TRUE) != null;pNode = pNode.Next.get(TRUE))
+					;
+				pNode.Next.put(TRUE,a);
+				pNode = pNode.Next.get(TRUE);
+			}
+			if(a.NodeStyle == JUDGENODE)
+			{
+				pNode.Next.put(TRUE,null);
+				pNode.Next.put(FALSE,null);
+				JudgeNodeStack.push(pNode);		//如果是判断节点，则把当前节点压栈
+			}
+			else
+			{
+				pNode.Next.put(TRUE, null);
 			}
 		}
 	}

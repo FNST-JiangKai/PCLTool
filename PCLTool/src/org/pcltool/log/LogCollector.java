@@ -64,9 +64,10 @@ public class LogCollector
 	{
 		StringBuilder logShown = new StringBuilder();
 
+		logShown.append( "[" + level + "]" );
 		logShown.append( SimpleUtil
 				.generateTimestamp( SimpleUtil.TIMESTAMP_ALL ) );
-		logShown.append( "[" + level + "]\n" );
+		logShown.append( "\n" );
 		logShown.append( content );
 
 		System.out.println( logShown.toString() );

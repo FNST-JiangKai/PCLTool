@@ -6,7 +6,6 @@ import java.io.*;
 import org.apache.sshd.*;
 import org.apache.sshd.client.channel.*;
 import org.apache.sshd.client.future.*;
-import org.apache.sshd.common.util.NoCloseOutputStream;
 import org.pcltool.log.LogCollector;
 
 public class SshConsole
@@ -15,6 +14,7 @@ public class SshConsole
 
 	private static final int CONSOLE_SIZE = 1024;
 	private static final int WAIT = 1000;
+	private static final int BUFF_SIZE = 1024;
 
 	private static final int FLAG_ON = 1;
 	private static final int FLAG_OFF = 0;
@@ -24,19 +24,20 @@ public class SshConsole
 	private String username = null;
 	private String password = null;
 
-	private PipedInputStream input = null;
-	private PipedOutputStream output = null;
+	private PipedInputStream readCommand = null;
+	private PipedOutputStream writeCommand = null;
+	private PipedInputStream readData = null;
+	private PipedOutputStream writeData = null;
+
+	private ChannelShell sshShell = null;
 
 	volatile private int execThreadSwitch = FLAG_OFF;
 	volatile private int dataThreadSwitch = FLAG_OFF;
 	volatile private int cmdFinishFlag = FLAG_ON;
 	volatile private int dataFinishFlag = FLAG_ON;
-
-	private StringBuilder commandBuff = new StringBuilder();
-	private String commandLocal = null;
+	volatile private int count = 0;
 
 	private LogCollector sshLog = LogCollector.createLogCollector( "sshLog" );
-
 	private ArrayList< String > result = new ArrayList< String >();
 
 	public SshConsole()
@@ -44,8 +45,8 @@ public class SshConsole
 
 	}
 
-	public SshConsole( String remoteIP, int remotePort, String username,
-			String password )
+	public SshConsole( String remoteIP, int remotePort,
+			String username, String password )
 	{
 		this.remoteIP = remoteIP;
 		this.remotePort = remotePort;
@@ -55,43 +56,76 @@ public class SshConsole
 
 	public void init()
 	{
-		if ( remoteIP == null || username == null || password == null )
-		{
-			sshLog.logToConsole( "Initialize failed! Missing arguments!",
-					LogCollector.ERROR );
-			throw new IllegalArgumentException( "Missing arguments" );
-		}
-		if ( !SimpleUtil.checkIP( remoteIP ) )
-		{
-			sshLog.logToConsole( "Initialize failed! Invalid IP address!",
-					LogCollector.ERROR );
-			throw new IllegalArgumentException( "Invalid IP address!" );
-		}
-		if ( remotePort == 0 )
-		{
-			remotePort = SshConsole.DEFAULT_PORT;
-		}
-
-		execThreadSwitch = FLAG_ON;
-		dataThreadSwitch = FLAG_ON;
-
 		try
 		{
+			Thread exec = null;
+			Thread data = null;
+
+			if ( remoteIP == null || username == null || password == null )
+			{
+				sshLog.logToConsole( "Initialize failed! Missing arguments!",
+						LogCollector.ERROR );
+				throw new IllegalArgumentException( "Missing arguments" );
+			}
+			if ( !SimpleUtil.checkIP( remoteIP ) )
+			{
+				sshLog.logToConsole( "Initialize failed! Invalid IP address!",
+						LogCollector.ERROR );
+				throw new IllegalArgumentException( "Invalid IP address!" );
+			}
+			if ( remotePort == 0 )
+			{
+				remotePort = SshConsole.DEFAULT_PORT;
+			}
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole( "Create pipes for command.",
+						LogCollector.INFO );
+			}
+			readCommand = new PipedInputStream( BUFF_SIZE );
+			writeCommand = new PipedOutputStream();
+			readCommand.connect( writeCommand );
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole( "Create pipes for data.",
 						LogCollector.INFO );
 			}
-			input = new PipedInputStream();
-			output = new PipedOutputStream();
-			input.connect( output );
+			readData = new PipedInputStream( BUFF_SIZE );
+			writeData = new PipedOutputStream();
+			readData.connect( writeData );
+
+			execThreadSwitch = FLAG_ON;
+			dataThreadSwitch = FLAG_ON;
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole( "Create exec thread.", LogCollector.INFO );
+				exec = new Thread( new ExecuteThread() );
+				sshLog.logToConsole( "Create data thread.", LogCollector.INFO );
+				data = new Thread( new GetDataThread() );
+			}
+			exec.start();
+			data.start();
+		}
+		catch ( IllegalArgumentException e )
+		{
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole(
+						"Initial failed becasue of illegal argument!",
+						LogCollector.ERROR );
+				sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
+			}
 		}
 		catch ( IOException e )
 		{
 			// TODO Auto-generated catch block
-			sshLog.logToConsole( "Initialize failed! Failed to connect to "
-					+ remoteIP, LogCollector.ERROR );
-			sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole(
+						"Initial failed because pipe can not be created!",
+						LogCollector.ERROR );
+				sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
+			}
 		}
 	}
 
@@ -112,86 +146,64 @@ public class SshConsole
 
 		try
 		{
-			input.close();
-			output.close();
+			readCommand.close();
+			writeCommand.close();
+			readData.close();
+			writeData.close();
 		}
 		catch ( IOException e )
 		{
 			// TODO Auto-generated catch block
 			synchronized ( sshLog )
 			{
-				sshLog.logToConsole(
-						"SSHConsole uninitial failed because of pipe problem.",
-						LogCollector.WARN );
+				sshLog.logToConsole( "Pipe closed.", LogCollector.WARN );
 				sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
 			}
 		}
 	}
 
-	public ArrayList< String > executeCommand( ArrayList< String > command )
+	public ArrayList< String > executeCommand( ArrayList< String > commands )
 	{
-		Thread exec = null;
-		Thread data = null;
 		try
 		{
-			synchronized ( result )
-			{
-				result.clear();
-			}
-			synchronized ( sshLog )
-			{
-				sshLog.logToConsole( "Create exec thread.", LogCollector.INFO );
-				exec = new Thread( new ExecuteThread() );
-				sshLog.logToConsole( "Create data thread.", LogCollector.INFO );
-				data = new Thread( new GetDataThread() );
-			}
+			int size = commands.size();
 			cmdFinishFlag = FLAG_OFF;
-			dataFinishFlag = FLAG_ON;
+			count = size;
 
-			int index = 0;
-			commandBuff.append( command.get( index ) );
-			commandLocal = commandBuff.toString();
-
-			exec.start();
-			data.start();
-
-			for ( index = 1; index < command.size(); index++ )
+			writeCommand.write( commands.get( 0 ).getBytes() );
+			for ( int i = 1; i < size; i++ )
 			{
-				while ( commandLocal.length() != 0 )
+				while ( cmdFinishFlag == FLAG_OFF )
+				// 检测上一条命令是否已执行完毕
 				{
-					synchronized ( commandBuff )
-					{
-						commandLocal = commandBuff.toString();
-					}
 					synchronized ( sshLog )
 					{
 						sshLog.logToConsole(
-								"Last command has not finished. Wait...",
+								"Last command has not finished. Wait",
 								LogCollector.INFO );
+						Thread.sleep( WAIT );
 					}
-					Thread.sleep( WAIT );
 				}
-				commandBuff.append( command.get( index ) );
-			}
-
-			synchronized ( commandBuff )
-			{
-				commandLocal = commandBuff.toString();
-			}
-			while ( commandLocal.length() > 0 || cmdFinishFlag != FLAG_ON
-					|| dataFinishFlag != FLAG_ON )
-			// 判断exec线程和data线程是否已执行完毕。
-			{
 				synchronized ( sshLog )
 				{
-					sshLog.logToConsole(
-							"Child thread has not finished. Wait...",
-							LogCollector.INFO );
+					sshLog.logToConsole( "Write commands...", LogCollector.INFO );
 				}
-				Thread.sleep( WAIT );
+				writeCommand.write( commands.get( i ).getBytes() );
 			}
 			synchronized ( result )
 			{
+				while ( count > 0 )
+				{
+					synchronized ( sshLog )
+					{
+						sshLog.logToConsole(
+								"Excution has not finished. Wait.\nProgress "
+										+ count + "/" + commands.size(),
+								LogCollector.INFO );
+						Thread.sleep( WAIT );
+					}
+				}
+
 				return result;
 			}
 		}
@@ -205,7 +217,23 @@ public class SshConsole
 						LogCollector.WARN );
 				sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
 			}
-			return result;
+			synchronized ( result )
+			{
+				return result;
+			}
+		}
+		catch ( IOException e )
+		{
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole( "Failed to write commands to pipes.",
+						LogCollector.WARN );
+				sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
+			}
+			synchronized ( result )
+			{
+				return result;
+			}
 		}
 	}
 
@@ -215,7 +243,6 @@ public class SshConsole
 		private ConnectFuture sshConnection = null;
 		private ClientSession sshSession = null;
 		private ClientChannel sshChannel = null;
-		private ChannelShell sshShell = null;
 
 		private void init()
 		{
@@ -251,7 +278,7 @@ public class SshConsole
 				}
 				if ( (ret & ClientSession.CLOSED) != 0 )
 				{
-					throw new IOException(
+					throw new IllegalStateException(
 							"Session has been closed with unknown reason!" );
 				}
 				synchronized ( sshLog )
@@ -259,6 +286,15 @@ public class SshConsole
 					sshLog.logToConsole(
 							"Execution thread initial finished successfully!",
 							LogCollector.INFO );
+				}
+			}
+			catch ( IllegalStateException e )
+			{
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole( "Failed to create ssh session!",
+							LogCollector.ERROR );
+					sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
 				}
 			}
 			catch ( InterruptedException e )
@@ -289,16 +325,19 @@ public class SshConsole
 		{
 			if ( sshSession != null )
 			{
+				System.out.println("[DEBUG]Session alive");
 				sshSession.close( false );
 				sshSession = null;
 			}
 			if ( sshConnection != null )
 			{
+				System.out.println("[DEBUG]Connection alive");
 				sshConnection.cancel();
 				sshConnection = null;
 			}
 			if ( sshClient != null )
 			{
+				System.out.println("[DEBUG]Client alive");
 				sshClient.stop();
 			}
 		}
@@ -311,23 +350,18 @@ public class SshConsole
 				while ( execThreadSwitch == FLAG_ON )
 				// 当exec线程开关打开时，线程循环执行。
 				{
-					String cmd = null;
+					StringBuilder cmd = new StringBuilder();
+					byte[] buff = null;
+					int length = 0;
+
 					ByteArrayInputStream inputCommand = null;
-					synchronized ( commandBuff )
+
+					while ( (length = readCommand.available()) > 0 )
+					// 当管道不为空时，读取管道数据
 					{
-						// 同步获取当前缓冲区中的命令，然后清空缓冲区。
-						// 如果缓冲区为null或者没有内容，则等待WATI指定时间后继续下一次循环。
-						if ( commandBuff != null && commandBuff.length() > 0 )
-						{
-							synchronized ( sshLog )
-							{
-								sshLog.logToConsole(
-										"Get command successfully!",
-										LogCollector.INFO );
-							}
-							cmd = commandBuff.toString();
-							commandBuff.delete( 0, commandBuff.length() );
-						}
+						buff = new byte[ length ];
+						readCommand.read( buff );
+						cmd.append( new String( buff ) );
 					}
 					if ( cmd != null && cmd.length() > 0 )
 					// 当取得的命令不为null且不为空字符串时执行命令
@@ -338,13 +372,11 @@ public class SshConsole
 							synchronized ( sshLog )
 							{
 								sshLog.logToConsole(
-										"Data of last command has not been finished. Wait...",
+										"Data of last command has not been saved. Wait...",
 										LogCollector.INFO );
 							}
 							Thread.sleep( WAIT );
 						}
-						// 设定标志位，表示命令正在执行中。
-						cmdFinishFlag = FLAG_OFF;
 						sshChannel = sshSession.createChannel( "shell" );
 						if ( sshChannel != null )
 						{
@@ -367,14 +399,18 @@ public class SshConsole
 							}
 						}
 						sshShell.setPtyColumns( CONSOLE_SIZE );
-						inputCommand = new ByteArrayInputStream( cmd.getBytes() );
+						inputCommand = new ByteArrayInputStream( cmd.toString()
+								.getBytes() );
+						cmd.delete( 0, cmd.length() );
 
 						sshShell.setIn( inputCommand );
-						sshShell.setOut( new NoCloseOutputStream( output ) );
+						sshShell.setOut( writeData );
+						dataFinishFlag = FLAG_OFF;
 						sshShell.open().await();
 						sshShell.waitFor( ClientChannel.CLOSED, 0 );
 						// 设定标志位，表示命令执行完毕。
 						cmdFinishFlag = FLAG_ON;
+						count--;
 					}
 					else
 					{
@@ -432,41 +468,26 @@ public class SshConsole
 				while ( dataThreadSwitch == FLAG_ON )
 				// 当data线程开关打开时，线程循环执行。
 				{
-					while ( (length = input.available()) == 0 )
-					// 当管道中数据为空时。
+					if ( (length = readData.available()) == 0
+							&& buffer.length() > 0
+							&& dataFinishFlag == FLAG_OFF )
+					// 当管道中数据长度为0.且缓冲区不为空时，表示数据传输完毕。
 					{
-
-						if ( cmdFinishFlag == FLAG_ON )
-						// 如果命令已执行完毕，表明没有后续数据，数据收集已完成。
 						// 将缓存中的数据添加到命令返回值列表中。
+						synchronized ( result )
 						{
-							synchronized ( result )
-							{
-								if ( buffer.length() != 0 )
-								{
-									result.add( buffer.toString() );
-								}
-							}
-							buffer.delete( 0, buffer.length() );
-							dataFinishFlag = FLAG_ON;
-							break;
+							result.add( buffer.toString() );
 						}
-						else
-						// 如果命令未执行完毕，则等待后续的命令执行结果发送至管道。
-						{
-							synchronized ( sshLog )
-							{
-								sshLog.logToConsole( "Pipe is empty. Wait...",
-										LogCollector.INFO );
-							}
-							Thread.sleep( WAIT );
-						}
+						buffer.delete( 0, buffer.length() );
+						ret = null;
+						dataFinishFlag = FLAG_ON;
+						sshShell.close( false );
 					}
-					ret = new byte[ length ];
-					input.read( ret );
-					if ( ret != null )
+					else
 					{
-						buffer.append( ret );
+						ret = new byte[ length ];
+						readData.read( ret );
+						buffer.append( new String( ret ) );
 					}
 					ret = null;
 				}
@@ -478,17 +499,6 @@ public class SshConsole
 				{
 					sshLog.logToConsole(
 							"Data collection thread terminated because of pipe problem.",
-							LogCollector.WARN );
-					sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
-				}
-			}
-			catch ( InterruptedException e )
-			{
-				// TODO Auto-generated catch block
-				synchronized ( sshLog )
-				{
-					sshLog.logToConsole(
-							"Data collection thread terminated because of interruption.",
 							LogCollector.WARN );
 					sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
 				}

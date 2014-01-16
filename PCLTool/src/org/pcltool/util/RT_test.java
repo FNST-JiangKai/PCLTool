@@ -18,17 +18,10 @@ public class RT_test
 	static byte EMPTYNODE = 3;
 	static byte ENDWHILENODE = 4;
 
-	static String TRUE = "true";
-	static String FALSE = "false";
-
 	/*
 	 * 支持的命令集
 	 */
 
-	static String IF = "if";
-	static String ELSE = "else";
-
-	private CommandTree cmdTree = null;
 	private LogCollector RTTestLog = LogCollector
 			.createLogCollector( "rttestlog" );
 
@@ -37,210 +30,204 @@ public class RT_test
 		;
 	}
 
-	/*
-	 * 将文件内容解析为树状结构，RT_test对树状结构遍历执行
-	 */
-	private class ParaseTestCaseFile
+	public Queue< CommandNode > CMDTree = null;
+
+	private class CommandNode
 	{
-		public ParaseTestCaseFile( String ParaseTestCaseFile )
+		/*
+		 * 1.每行命令作为一个节点 2.每个语句块作为一个节点 3.节点中可以嵌套节点
+		 */
+
+		public byte NodeStyle = COMMANDNODE;// 默认节点类型为command
+
+		// public String JudgementConditions = null;
+		public String NodeData = null;
+		public Queue< CommandNode > TrueCmdTree = null;
+		public Queue< CommandNode > FalseCmdTree = null;
+		public Boolean Switch = true; // 默认只有TrueCmdTree
+
+		public CommandNode( byte NodeStyle, String NodeData )
 		{
-			;
+			this.NodeStyle = NodeStyle;
+			this.NodeData = NodeData;
 		}
 	}
 
-
-	private class MakeCommandTree
+	private class MakeCommandNode
 	{
-		File TestCaseFile = null;
 
+		private File TestCaseFile = null;
 
-		public MakeCommandTree( String TestCaseFilePath )
+		private Stack< CommandNode > IfStack = null;
+		private Stack< CommandNode > WhileStack = null;
+
+		private Boolean StackSwitch = true; // 当前栈开关。
+											// true->IfStack。false->WhileStack
+
+		private HashMap< String, Integer > CMDLIST = null;
+
+		public MakeCommandNode( String TestCaseFilePath )
 		{
-			TestCaseFile = new File( TestCaseFilePath );
-			if ( TestCaseFile.exists() == false )
-			{
-				TestCaseFile = null;
-				RTTestLog.logToConsole( "File not exist. File"
-						+ TestCaseFilePath + ".\n", LogCollector.ERROR );
-				return;
-			}
-		}
+			CMDLIST = new HashMap< String, Integer >();
+			IfStack = new Stack< CommandNode >();
+			WhileStack = new Stack< CommandNode >();
 
-		public void ParaseTestCaseFile()
-		{
-			try
-			{
-				FileInputStream in = new FileInputStream( TestCaseFile );
-				InputStreamReader inReader = new InputStreamReader( in );
-				BufferedReader bufReader = new BufferedReader( inReader );
-
-				String linestr = null;
-				while ( (linestr = bufReader.readLine()) != null )
-				{
-					/*
-					 * 从文件中按行读取，将读取的内容按照格式放入cmdTree中 
-					 * 每个文件一棵树
-					 */
-					AddCommandToCommandTree(linestr);
-				}
-
-			}
-			catch ( FileNotFoundException e )
-			{
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-
-			catch ( IOException e )
-			{
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+			CMDLIST.put( "if", 1 );
+			CMDLIST.put( "else", 2 );
+			CMDLIST.put( "endif", 3 );
+			CMDLIST.put( "while", 4 );
+			CMDLIST.put( "endwhile", 5 );
 
 		}
 
-		
-		
-		private void AddCommandToCommandTree( String Command )
+		public void AddCommandToCMDTree( String Command )
 		{
-			/*
-			 * 按空格区分，然后进行匹配
-			 */
-			HashMap< String, String > CMDLST = null;
-			CMDLST.put( "if", "if" );
-			// CMDLST.put( "else", "else" ); 本次不支持else
-			CMDLST.put( "endif", "endif" );
-
-			CMDLST.put( "while", "while" );
-			CMDLST.put( "endwhile", "endwhile" );
-
-			Command = Command.split( "\n" )[ 0 ];
-			String CmdListSplitBySpace[] = Command.split( " " );
-
-			if ( CMDLST.containsValue( CmdListSplitBySpace[ 0 ] ) )
+			Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
+			String CommandList[] = Command.split( " " ); // 将命令按空格区分
+			if ( CMDLIST.containsKey( CommandList[ 0 ] ) )
 			{
-				switch ( CmdListSplitBySpace.length )
+				switch ( CMDLIST.get( CommandList[ 0 ] ) )
 				{
-				case 2:
+				case 1: // if
 				{
-					// 处理if,while
-					CommandNode node = null;
-					if ( CmdListSplitBySpace[ 0 ] == CMDLST.get( "if" ) )
+					// 检查if语句是否合法
+					if ( CommandList.length != 2 )
 					{
-						node = new CommandNode( CmdListSplitBySpace[ 1 ],
-								IFNODE );// 按照判断节点处理当前操作
-					}
-					if ( CmdListSplitBySpace[ 0 ] == CMDLST.get( "while" ) )
-					{
-						node = new CommandNode( CmdListSplitBySpace[ 1 ],
-								WHILENODE );
-					}
-					if ( node == null )
-					{
-						RTTestLog.logToConsole( "ERROR Command: " + Command
-								+ ".\n", LogCollector.ERROR );
+						RTTestLog.logToConsole( "Synax Error: " + Command,
+								LogCollector.ERROR );
 						return;
 					}
 					else
 					{
-						cmdTree.appendNode( node );
+						String Condition = CommandList[ 1 ];
+						CommandNode node = new CommandNode( IFNODE, Condition );
+						node.Switch = true; // if 语句块初始化
+						AddNodeToQueue( node );
 					}
 					break;
 				}
-				case 1:
+				case 2: // else
 				{
-					// 处理endif，endwhile
-					if ( CmdListSplitBySpace[ 0 ] == CMDLST.get( "endif" ) )
+					if ( CommandList.length != 1 )
 					{
-						CommandNode node = new CommandNode( null, EMPTYNODE );
-						cmdTree.appendNode( node );
-						CommandNode LastIfNode = cmdTree.IfNodeStack.pop();
+						RTTestLog.logToConsole( "Synax Error: " + Command,
+								LogCollector.ERROR );
+						return;
 					}
-					if ( CmdListSplitBySpace[ 0 ] == CMDLST.get( "endwhile" ) )
+					else
 					{
-						CommandNode node = new CommandNode( null, ENDWHILENODE );
-						cmdTree.appendNode( node );
-						CommandNode LastWhileNode = cmdTree.WhileNodeStack
-								.pop();
-						node.Next.put( FALSE, LastWhileNode );
-						LastWhileNode.Next.put( FALSE, node );
+						CommandNode LastIfNode = IfStack.pop();
+						LastIfNode.Switch = false; // 将if语句块中开关指向False
+						IfStack.push( LastIfNode );
 					}
 					break;
+				}
+				case 3: // endif
+				{
+					if ( CommandList.length != 1 )
+					{
+						RTTestLog.logToConsole( "Synax Error: " + Command,
+								LogCollector.ERROR );
+						return;
+					}
+					else
+					{
+						if ( IfStack.empty() )
+						{
+							RTTestLog.logToConsole( "IfStack Error",
+									LogCollector.ERROR );
+							return;
+						}
+						else
+							IfStack.pop(); // 弹出最近一个IF节点。
+					}
+					break;
+				}
+				case 4: // while
+				{
+					if(CommandList.length != 2)
+					{
+						RTTestLog.logToConsole( "Synax Error: " + Command,
+								LogCollector.ERROR );
+						return;
+					}
+					else
+					{
+						String Condition = CommandList[ 1 ];
+						CommandNode node = new CommandNode( WHILENODE, Condition );
+						node.Switch = true;
+						AddNodeToQueue( node );
+					}
+					break;
+				}
+				case 5: // endwhile
+				{
+					if (CommandList.length != 1)
+					{
+						RTTestLog.logToConsole( "Synax Error: " + Command,
+								LogCollector.ERROR );
+						return;
+					}
+					else
+					{
+						if ( WhileStack.empty() )
+						{
+							RTTestLog.logToConsole( "WhileStack Error",
+									LogCollector.ERROR );
+							return;
+						}
+						else
+							WhileStack.pop(); // 弹出最近一个While节点。
+					}
 				}
 				default:
+					break;
+				}
+			}
+			else
+			{
+				CommandNode node = new CommandNode( COMMANDNODE, Command );
+				AddNodeToQueue( node );
+			}
+
+		}
+
+		public void AddNodeToQueue( CommandNode node )
+		{
+			if ( IfStack.empty() && WhileStack.empty() )
+			{
+				CMDTree.add( node );
+			}
+			else
+			{
+				if ( StackSwitch = true && IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
+				{
+					CommandNode LastIfNode = IfStack.pop();
+					if ( LastIfNode.Switch == true ) // if条件成立语句块
+					{
+						LastIfNode.TrueCmdTree.add( node );
+					}
+					else
+					// else后if条件语句块
+					{
+						LastIfNode.FalseCmdTree.add( node );
+					}
+					IfStack.push( LastIfNode );
+				}
+				if ( StackSwitch = false && WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
+				{
+					CommandNode LastWhileNode = WhileStack.pop();
+					LastWhileNode.TrueCmdTree.add( node );
+					WhileStack.push( LastWhileNode );
+				}
+				else
 				{
 					RTTestLog.logToConsole(
-							"ERROR Command: " + Command + ".\n",
+							"ERROR in Making CommandTree. Wrong StackSwitch.",
 							LogCollector.ERROR );
 					return;
 				}
-				}
 			}
-			else
-			{
-				CommandNode node = new CommandNode( Command, COMMANDNODE );
-				cmdTree.appendNode( node );
-			}
-
-			return;
-		}
-
-	}
-
-	private class CommandNode
-	{
-		public String Command = null;
-		public byte NodeStyle = COMMANDNODE;
-		public HashMap< String, CommandNode > Next = null;
-
-		public CommandNode( String Command, byte NodeStyle )
-		{
-			this.Command = Command;
-			this.NodeStyle = NodeStyle;
-		}
-
-	}
-
-	private class CommandTree
-	{
-		CommandNode Root = null;
-		Stack< CommandNode > IfNodeStack = null;
-		Stack< CommandNode > WhileNodeStack = null;
-
-		public CommandTree()
-		{
-			Root = null;
-			IfNodeStack = null;
-			WhileNodeStack = null;
-		}
-
-		public void appendNode( CommandNode a )
-		{
-			CommandNode pNode = null; // 当前插入节点指针
-			if ( Root == null )
-			{
-				Root = a;
-				pNode = a;
-			}
-			else
-			{
-				pNode = Root;
-				for ( ; pNode.Next.get( TRUE ) != null; pNode = pNode.Next
-						.get( TRUE ) )
-					;
-				pNode.Next.put( TRUE, a );
-				pNode = pNode.Next.get( TRUE );
-			}
-			if ( a.NodeStyle == IFNODE )
-			{
-				IfNodeStack.push( pNode ); // 如果是判断节点，则把当前节点压栈
-			}
-			if ( a.NodeStyle == WHILENODE )
-			{
-				WhileNodeStack.push( pNode );
-			}
-			RTTestLog.logToConsole( "Add command to commandtree. Command: "
-					+ a.Command + ".\n", LogCollector.INFO );
 		}
 	}
 }

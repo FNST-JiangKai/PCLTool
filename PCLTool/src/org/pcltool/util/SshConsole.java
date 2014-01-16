@@ -9,8 +9,19 @@ import org.apache.sshd.client.future.*;
 import org.apache.sshd.common.util.*;
 import org.pcltool.log.LogCollector;
 
+/**
+ * 用来实现SSH连接的类.
+ * <p>
+ * 通过调用Apache提供的SSHD库,创建SSH连接并执行命令.
+ * 
+ * @author jiangkai
+ * @version 1.0
+ */
 public class SshConsole
 {
+	/**
+	 * SSH连接的默认端口号.
+	 */
 	public static final int DEFAULT_PORT = 22;
 
 	private static final int CONSOLE_SIZE = 1024;
@@ -39,11 +50,26 @@ public class SshConsole
 	private LogCollector sshLog = LogCollector.createLogCollector( "sshLog" );
 	private StringBuffer result = new StringBuffer();
 
+	/**
+	 * 默认构造函数.
+	 */
 	public SshConsole()
 	{
 
 	}
 
+	/**
+	 * 有参数的构造函数.
+	 * 
+	 * @param remoteIP
+	 * 远程服务器IP地址.
+	 * @param remotePort
+	 * 远程服务器端口.
+	 * @param username
+	 * 用户名
+	 * @param password
+	 * 密码
+	 */
 	public SshConsole( String remoteIP, int remotePort, String username,
 			String password )
 	{
@@ -53,6 +79,13 @@ public class SshConsole
 		this.password = password;
 	}
 
+	/**
+	 * 初始化方法.
+	 * <p>
+	 * 此方法通常应该与带参数的构造函数组合使用.
+	 * <p>
+	 * 初始化时会对参数进行校验,如果校验失败则会抛出异常.校验成功则会启动SSH执行线程及数据记录线程.
+	 */
 	public void init()
 	{
 		try
@@ -60,6 +93,7 @@ public class SshConsole
 			Thread exec = null;
 			Thread data = null;
 
+			// 校验参数
 			if ( remoteIP == null || username == null || password == null )
 			{
 				sshLog.logToConsole( "Initialize failed! Missing arguments!",
@@ -76,6 +110,8 @@ public class SshConsole
 			{
 				remotePort = SshConsole.DEFAULT_PORT;
 			}
+
+			// 创建命令管道.
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole( "Create pipes for command.",
@@ -84,6 +120,8 @@ public class SshConsole
 			readCommand = new PipedInputStream( BUFF_SIZE );
 			writeCommand = new PipedOutputStream();
 			readCommand.connect( writeCommand );
+
+			// 创建数据管道
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole( "Create pipes for data.",
@@ -93,6 +131,7 @@ public class SshConsole
 			writeData = new PipedOutputStream();
 			readData.connect( writeData );
 
+			// 初始化线程相关参数.
 			execThreadSwitch = FLAG_ON;
 			dataThreadSwitch = FLAG_ON;
 			synchronized ( sshLog )
@@ -102,6 +141,7 @@ public class SshConsole
 				sshLog.logToConsole( "Create data thread.", LogCollector.INFO );
 				data = new Thread( new GetDataThread() );
 			}
+			// 启动线程.
 			exec.start();
 			data.start();
 		}
@@ -128,6 +168,20 @@ public class SshConsole
 		}
 	}
 
+	/**
+	 * 初始化方法.
+	 * <p>
+	 * 此方法通常与无参构造函数组合使用.
+	 * 
+	 * @param remoteIP
+	 * 远程服务器IP地址
+	 * @param remotePort
+	 * 远程服务器端口
+	 * @param username
+	 * 用户名
+	 * @param password
+	 * 密码
+	 */
 	public void init( String remoteIP, int remotePort, String username,
 			String password )
 	{
@@ -138,10 +192,16 @@ public class SshConsole
 		init();
 	}
 
+	/**
+	 * 清理方法.
+	 * <p>
+	 * 此方法用于对SSH连接及相关线程进行清理.SshConsole对象使用完毕后必须调用此方法进行扫尾处理.
+	 */
 	public void uninit()
 	{
 		try
 		{
+			// 关闭SSH连接.
 			if ( sshShell != null )
 			{
 				synchronized ( sshLog )
@@ -153,11 +213,13 @@ public class SshConsole
 				sshShell = null;
 			}
 
+			// 关闭管道.
 			readCommand.close();
 			writeCommand.close();
 			readData.close();
 			writeData.close();
 
+			// 关闭线程开关标志位.
 			execThreadSwitch = FLAG_OFF;
 			dataThreadSwitch = FLAG_OFF;
 		}
@@ -172,11 +234,21 @@ public class SshConsole
 		}
 	}
 
+	/**
+	 * 通过SSH连接远程执行命令.
+	 * <p>
+	 * 此方法对底层进行了封装.
+	 * 
+	 * @param command
+	 * 需要执行的命令.
+	 * @return 命令的控制台输出.
+	 */
 	public String executeCommand( String command )
 	{
 		try
 		{
 			String temp = null;
+			// 在命令末尾添加回车.
 			if ( command.charAt( command.length() - 1 ) != '\n' )
 			{
 				command = command + "\n";
@@ -187,6 +259,7 @@ public class SshConsole
 			}
 			writeCommand.write( command.getBytes() );
 
+			// 等待命令的控制台输出.
 			dataFinishFlag = FLAG_OFF;
 			while ( dataFinishFlag == FLAG_OFF )
 			{
@@ -227,6 +300,16 @@ public class SshConsole
 		}
 	}
 
+	/**
+	 * 通过SSH连接远程执行一组命令.
+	 * <p>
+	 * 此方法对{@link=org.pcltool.util.SshConsole.executeCommand(String)}
+	 * 进行了包装以执行一组命令.
+	 * 
+	 * @param commands
+	 * ArrayList形式的命令序列.
+	 * @return ArrayList形式的控制台输出序列,和命令序列一一对应.
+	 */
 	public ArrayList< String > executeCommand( ArrayList< String > commands )
 	{
 		int all = commands.size();
@@ -245,6 +328,14 @@ public class SshConsole
 		return results;
 	}
 
+	/**
+	 * 执行线程类.
+	 * <p>
+	 * 实现对SSH连接的初始化,命令的读取,执行.
+	 * 
+	 * @author jiangkai
+	 * @version 1.0
+	 */
 	private class ExecuteThread implements Runnable
 	{
 		private SshClient sshClient = null;
@@ -252,6 +343,11 @@ public class SshConsole
 		private ClientSession sshSession = null;
 		private ClientChannel sshChannel = null;
 
+		/**
+		 * 初始化方法.
+		 * <p>
+		 * 对SSH连接进行初始化.
+		 */
 		private void init()
 		{
 			try
@@ -355,6 +451,11 @@ public class SshConsole
 			}
 		}
 
+		/**
+		 * 收尾方法.
+		 * <p>
+		 * 线程结束前会调用此方法进行收尾处理.
+		 */
 		private void uninit()
 		{
 			if ( sshSession != null )
@@ -388,6 +489,10 @@ public class SshConsole
 			}
 		}
 
+		/**
+		 * 线程的主方法.
+		 */
+		@Override
 		public void run()
 		{
 			init();
@@ -400,12 +505,21 @@ public class SshConsole
 		}
 	}
 
+	/**
+	 * 数据收集线程类.
+	 * <p>
+	 * 收集SSH连接的控制台输出.
+	 * 
+	 * @author jiangkai
+	 * @version 1.0
+	 */
 	private class GetDataThread implements Runnable
 	{
 		private StringBuilder buffer = new StringBuilder();
-		private StringBuilder allData = new StringBuilder();
-		private StringBuilder all = new StringBuilder();
 
+		/**
+		 * 线程主方法.
+		 */
 		public void run()
 		{
 			int length = 0;
@@ -424,7 +538,6 @@ public class SshConsole
 						ret = new byte[ length ];
 						readData.read( ret );
 						buffer.append( new String( ret ) );
-						allData.append( new String( ret ) );
 						waitFlag = FLAG_OFF;
 						dataFinishFlag = FLAG_OFF;
 					}
@@ -434,6 +547,7 @@ public class SshConsole
 						if ( isDataEnd() )
 						{
 							if ( waitFlag == FLAG_ON )
+							// 如果已经是第2次检测到命令行提示符,则说明命令已执行完毕.
 							{
 								content = buffer.substring( 0,
 										buffer.lastIndexOf( "[" ) );
@@ -443,13 +557,13 @@ public class SshConsole
 									{
 										result.append( content );
 									}
-									all.append( content );
 									buffer.delete( 0, buffer.lastIndexOf( "[" ) );
 									dataFinishFlag = FLAG_ON;
 								}
 								Thread.sleep( WAIT );
 							}
 							else
+							// 如果第1次检测到命令行提示符,可能是命令尚未发送,进行等待.
 							{
 								waitFlag = FLAG_ON;
 								Thread.sleep( WAIT );
@@ -486,12 +600,20 @@ public class SshConsole
 			}
 		}
 
+		/**
+		 * 判断命令的控制台输出已经完成.
+		 * <p>
+		 * 根据命令行提示符判断控制台输出是否已完成.
+		 * <p>
+		 * 此判断基于以下事实:
+		 * <p>
+		 * 当一条命令执行完毕后,最后显示的一行文字的末尾必定是命令行提示符.
+		 * 
+		 * @return 输出是否已完成.
+		 * @bug 当控制台输出恰好与命令行提示符格式一致时会导致误判.
+		 */
 		private boolean isDataEnd()
 		{
-			// 根据Linux命令行提示符判断命令是否执行结束。
-			// 此判断基于以下事实
-			// 当一个命令执行完毕后，最后显示的末尾必定是命令行提示符
-			// BUG：此判断在输出恰好与提示符格式一致时会导致误判。
 			String flag = buffer.substring( buffer.lastIndexOf( "\n" ) + 1,
 					buffer.length() );
 			int indexLeft = flag.lastIndexOf( "[" );

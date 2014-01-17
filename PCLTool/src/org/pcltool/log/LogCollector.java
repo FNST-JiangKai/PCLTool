@@ -12,6 +12,8 @@ public class LogCollector
 	public static final int ERROR = 2;
 	public static final int OK = 3;
 	public static final int ACT = 4;
+	
+	private static String[] head = {" INFO"," WARN","ERROR","   OK","  ACT",};
 
 	private static HashMap< String, LogCollector > allLog = new HashMap< String, LogCollector >();
 	private static ArrayList< String > logList = new ArrayList< String >();
@@ -64,7 +66,7 @@ public class LogCollector
 	{
 		StringBuilder logShown = new StringBuilder();
 
-		logShown.append( "[" + level + "]" );
+		logShown.append( "[" + head[level] + "]" );
 		logShown.append( SimpleUtil
 				.generateTimestamp( SimpleUtil.TIMESTAMP_ALL ) );
 		logShown.append( "\n" );

@@ -6,15 +6,27 @@ import java.io.*;
 import org.apache.sshd.*;
 import org.apache.sshd.client.channel.*;
 import org.apache.sshd.client.future.*;
+import org.apache.sshd.common.util.*;
 import org.pcltool.log.LogCollector;
 
+/**
+ * 用来实现SSH连接的类.
+ * <p>
+ * 通过调用Apache提供的SSHD库,创建SSH连接并执行命令.
+ * 
+ * @author jiangkai
+ * @version 1.0
+ */
 public class SshConsole
 {
+	/**
+	 * SSH连接的默认端口号.
+	 */
 	public static final int DEFAULT_PORT = 22;
 
 	private static final int CONSOLE_SIZE = 1024;
-	private static final int WAIT = 1000;
 	private static final int BUFF_SIZE = 1024;
+	private static final int WAIT = 1000;
 
 	private static final int FLAG_ON = 1;
 	private static final int FLAG_OFF = 0;
@@ -33,20 +45,33 @@ public class SshConsole
 
 	volatile private int execThreadSwitch = FLAG_OFF;
 	volatile private int dataThreadSwitch = FLAG_OFF;
-	volatile private int cmdFinishFlag = FLAG_ON;
 	volatile private int dataFinishFlag = FLAG_ON;
-	volatile private int count = 0;
 
 	private LogCollector sshLog = LogCollector.createLogCollector( "sshLog" );
-	private ArrayList< String > result = new ArrayList< String >();
+	private StringBuffer result = new StringBuffer();
 
+	/**
+	 * 默认构造函数.
+	 */
 	public SshConsole()
 	{
 
 	}
 
-	public SshConsole( String remoteIP, int remotePort,
-			String username, String password )
+	/**
+	 * 有参数的构造函数.
+	 * 
+	 * @param remoteIP
+	 * 远程服务器IP地址.
+	 * @param remotePort
+	 * 远程服务器端口.
+	 * @param username
+	 * 用户名
+	 * @param password
+	 * 密码
+	 */
+	public SshConsole( String remoteIP, int remotePort, String username,
+			String password )
 	{
 		this.remoteIP = remoteIP;
 		this.remotePort = remotePort;
@@ -54,6 +79,13 @@ public class SshConsole
 		this.password = password;
 	}
 
+	/**
+	 * 初始化方法.
+	 * <p>
+	 * 此方法通常应该与带参数的构造函数组合使用.
+	 * <p>
+	 * 初始化时会对参数进行校验,如果校验失败则会抛出异常.校验成功则会启动SSH执行线程及数据记录线程.
+	 */
 	public void init()
 	{
 		try
@@ -61,6 +93,7 @@ public class SshConsole
 			Thread exec = null;
 			Thread data = null;
 
+			// 校验参数
 			if ( remoteIP == null || username == null || password == null )
 			{
 				sshLog.logToConsole( "Initialize failed! Missing arguments!",
@@ -77,6 +110,8 @@ public class SshConsole
 			{
 				remotePort = SshConsole.DEFAULT_PORT;
 			}
+
+			// 创建命令管道.
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole( "Create pipes for command.",
@@ -85,6 +120,8 @@ public class SshConsole
 			readCommand = new PipedInputStream( BUFF_SIZE );
 			writeCommand = new PipedOutputStream();
 			readCommand.connect( writeCommand );
+
+			// 创建数据管道
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole( "Create pipes for data.",
@@ -94,6 +131,7 @@ public class SshConsole
 			writeData = new PipedOutputStream();
 			readData.connect( writeData );
 
+			// 初始化线程相关参数.
 			execThreadSwitch = FLAG_ON;
 			dataThreadSwitch = FLAG_ON;
 			synchronized ( sshLog )
@@ -103,6 +141,7 @@ public class SshConsole
 				sshLog.logToConsole( "Create data thread.", LogCollector.INFO );
 				data = new Thread( new GetDataThread() );
 			}
+			// 启动线程.
 			exec.start();
 			data.start();
 		}
@@ -129,6 +168,20 @@ public class SshConsole
 		}
 	}
 
+	/**
+	 * 初始化方法.
+	 * <p>
+	 * 此方法通常与无参构造函数组合使用.
+	 * 
+	 * @param remoteIP
+	 * 远程服务器IP地址
+	 * @param remotePort
+	 * 远程服务器端口
+	 * @param username
+	 * 用户名
+	 * @param password
+	 * 密码
+	 */
 	public void init( String remoteIP, int remotePort, String username,
 			String password )
 	{
@@ -139,17 +192,36 @@ public class SshConsole
 		init();
 	}
 
+	/**
+	 * 清理方法.
+	 * <p>
+	 * 此方法用于对SSH连接及相关线程进行清理.SshConsole对象使用完毕后必须调用此方法进行扫尾处理.
+	 */
 	public void uninit()
 	{
-		execThreadSwitch = FLAG_OFF;
-		dataThreadSwitch = FLAG_OFF;
-
 		try
 		{
+			// 关闭SSH连接.
+			if ( sshShell != null )
+			{
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole( "Closing SSH channel...",
+							LogCollector.INFO );
+				}
+				sshShell.close( false );
+				sshShell = null;
+			}
+
+			// 关闭管道.
 			readCommand.close();
 			writeCommand.close();
 			readData.close();
 			writeData.close();
+
+			// 关闭线程开关标志位.
+			execThreadSwitch = FLAG_OFF;
+			dataThreadSwitch = FLAG_OFF;
 		}
 		catch ( IOException e )
 		{
@@ -162,81 +234,108 @@ public class SshConsole
 		}
 	}
 
-	public ArrayList< String > executeCommand( ArrayList< String > commands )
+	/**
+	 * 通过SSH连接远程执行命令.
+	 * <p>
+	 * 此方法对底层进行了封装.
+	 * 
+	 * @param command
+	 * 需要执行的命令.
+	 * @return 命令的控制台输出.
+	 */
+	public String executeCommand( String command )
 	{
 		try
 		{
-			int size = commands.size();
-			cmdFinishFlag = FLAG_OFF;
-			count = size;
-
-			writeCommand.write( commands.get( 0 ).getBytes() );
-			for ( int i = 1; i < size; i++ )
+			String temp = null;
+			// 在命令末尾添加回车.
+			if ( command.charAt( command.length() - 1 ) != '\n' )
 			{
-				while ( cmdFinishFlag == FLAG_OFF )
-				// 检测上一条命令是否已执行完毕
-				{
-					synchronized ( sshLog )
-					{
-						sshLog.logToConsole(
-								"Last command has not finished. Wait",
-								LogCollector.INFO );
-						Thread.sleep( WAIT );
-					}
-				}
+				command = command + "\n";
+			}
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole( "Write commands...", LogCollector.INFO );
+			}
+			writeCommand.write( command.getBytes() );
+
+			// 等待命令的控制台输出.
+			dataFinishFlag = FLAG_OFF;
+			while ( dataFinishFlag == FLAG_OFF )
+			{
 				synchronized ( sshLog )
 				{
-					sshLog.logToConsole( "Write commands...", LogCollector.INFO );
+					sshLog.logToConsole( "Waiting results...",
+							LogCollector.INFO );
 				}
-				writeCommand.write( commands.get( i ).getBytes() );
+				Thread.sleep( WAIT );
 			}
 			synchronized ( result )
 			{
-				while ( count > 0 )
-				{
-					synchronized ( sshLog )
-					{
-						sshLog.logToConsole(
-								"Excution has not finished. Wait.\nProgress "
-										+ count + "/" + commands.size(),
-								LogCollector.INFO );
-						Thread.sleep( WAIT );
-					}
-				}
-
-				return result;
+				temp = result.toString();
+				result.delete( 0, result.length() );
 			}
+			return temp;
 		}
 		catch ( InterruptedException e )
 		{
-			// TODO Auto-generated catch block
 			synchronized ( sshLog )
 			{
 				sshLog.logToConsole(
-						"Command execution terminated because of interruption.",
-						LogCollector.WARN );
-				sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
+						"Execution failed because of interruption.",
+						LogCollector.ERROR );
+				sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
 			}
-			synchronized ( result )
-			{
-				return result;
-			}
+			return null;
 		}
 		catch ( IOException e )
 		{
 			synchronized ( sshLog )
 			{
-				sshLog.logToConsole( "Failed to write commands to pipes.",
-						LogCollector.WARN );
-				sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
+				sshLog.logToConsole( "Failed to write commands.",
+						LogCollector.ERROR );
+				sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
 			}
-			synchronized ( result )
-			{
-				return result;
-			}
+			return null;
 		}
 	}
 
+	/**
+	 * 通过SSH连接远程执行一组命令.
+	 * <p>
+	 * 此方法对{@link=org.pcltool.util.SshConsole.executeCommand(String)}
+	 * 进行了包装以执行一组命令.
+	 * 
+	 * @param commands
+	 * ArrayList形式的命令序列.
+	 * @return ArrayList形式的控制台输出序列,和命令序列一一对应.
+	 */
+	public ArrayList< String > executeCommand( ArrayList< String > commands )
+	{
+		int all = commands.size();
+		int count = 0;
+		ArrayList< String > results = new ArrayList< String >();
+		for ( String i : commands )
+		{
+			count++;
+			synchronized ( sshLog )
+			{
+				sshLog.logToConsole( "Progress:" + count + "/" + all,
+						LogCollector.INFO );
+			}
+			results.add( executeCommand( i ) );
+		}
+		return results;
+	}
+
+	/**
+	 * 执行线程类.
+	 * <p>
+	 * 实现对SSH连接的初始化,命令的读取,执行.
+	 * 
+	 * @author jiangkai
+	 * @version 1.0
+	 */
 	private class ExecuteThread implements Runnable
 	{
 		private SshClient sshClient = null;
@@ -244,6 +343,11 @@ public class SshConsole
 		private ClientSession sshSession = null;
 		private ClientChannel sshChannel = null;
 
+		/**
+		 * 初始化方法.
+		 * <p>
+		 * 对SSH连接进行初始化.
+		 */
 		private void init()
 		{
 			try
@@ -287,6 +391,32 @@ public class SshConsole
 							"Execution thread initial finished successfully!",
 							LogCollector.INFO );
 				}
+
+				sshChannel = sshSession.createChannel( "shell" );
+				if ( sshChannel != null )
+				{
+					synchronized ( sshLog )
+					{
+						sshLog.logToConsole( "Get SSH channel successfully!",
+								LogCollector.OK );
+					}
+				}
+				if ( sshChannel instanceof ChannelShell )
+				{
+
+					sshShell = (ChannelShell)sshChannel;
+					synchronized ( sshLog )
+					{
+						sshLog.logToConsole(
+								"Convert ClientChannel to ChannelShell.",
+								LogCollector.INFO );
+					}
+				}
+				sshShell.setPtyColumns( CONSOLE_SIZE );
+				sshShell.setIn( new NoCloseInputStream( readCommand ) );
+				sshShell.setOut( new NoCloseOutputStream( writeData ) );
+				sshShell.open().await();
+				dataFinishFlag = FLAG_OFF;
 			}
 			catch ( IllegalStateException e )
 			{
@@ -321,175 +451,135 @@ public class SshConsole
 			}
 		}
 
+		/**
+		 * 收尾方法.
+		 * <p>
+		 * 线程结束前会调用此方法进行收尾处理.
+		 */
 		private void uninit()
 		{
 			if ( sshSession != null )
 			{
-				System.out.println("[DEBUG]Session alive");
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole( "Closing SSH session...",
+							LogCollector.INFO );
+				}
 				sshSession.close( false );
 				sshSession = null;
 			}
 			if ( sshConnection != null )
 			{
-				System.out.println("[DEBUG]Connection alive");
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole( "Closing SSH connection...",
+							LogCollector.INFO );
+				}
 				sshConnection.cancel();
 				sshConnection = null;
 			}
 			if ( sshClient != null )
 			{
-				System.out.println("[DEBUG]Client alive");
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole( "Closing SSH client...",
+							LogCollector.INFO );
+				}
 				sshClient.stop();
 			}
 		}
 
+		/**
+		 * 线程的主方法.
+		 */
+		@Override
 		public void run()
 		{
-			try
+			init();
+			while ( execThreadSwitch == FLAG_ON )
+			// 当exec线程开关打开时，线程循环执行。
 			{
-				init();
-				while ( execThreadSwitch == FLAG_ON )
-				// 当exec线程开关打开时，线程循环执行。
-				{
-					StringBuilder cmd = new StringBuilder();
-					byte[] buff = null;
-					int length = 0;
-
-					ByteArrayInputStream inputCommand = null;
-
-					while ( (length = readCommand.available()) > 0 )
-					// 当管道不为空时，读取管道数据
-					{
-						buff = new byte[ length ];
-						readCommand.read( buff );
-						cmd.append( new String( buff ) );
-					}
-					if ( cmd != null && cmd.length() > 0 )
-					// 当取得的命令不为null且不为空字符串时执行命令
-					{
-						while ( dataFinishFlag == FLAG_OFF )
-						// 上一次命令执行的结果尚未被全部保存，等待data线程收集数据。
-						{
-							synchronized ( sshLog )
-							{
-								sshLog.logToConsole(
-										"Data of last command has not been saved. Wait...",
-										LogCollector.INFO );
-							}
-							Thread.sleep( WAIT );
-						}
-						sshChannel = sshSession.createChannel( "shell" );
-						if ( sshChannel != null )
-						{
-							synchronized ( sshLog )
-							{
-								sshLog.logToConsole(
-										"Get SSH channel successfully!",
-										LogCollector.OK );
-							}
-						}
-						if ( sshChannel instanceof ChannelShell )
-						{
-
-							sshShell = (ChannelShell)sshChannel;
-							synchronized ( sshLog )
-							{
-								sshLog.logToConsole(
-										"Convert ClientChannel to ChannelShell.",
-										LogCollector.INFO );
-							}
-						}
-						sshShell.setPtyColumns( CONSOLE_SIZE );
-						inputCommand = new ByteArrayInputStream( cmd.toString()
-								.getBytes() );
-						cmd.delete( 0, cmd.length() );
-
-						sshShell.setIn( inputCommand );
-						sshShell.setOut( writeData );
-						dataFinishFlag = FLAG_OFF;
-						sshShell.open().await();
-						sshShell.waitFor( ClientChannel.CLOSED, 0 );
-						// 设定标志位，表示命令执行完毕。
-						cmdFinishFlag = FLAG_ON;
-						count--;
-					}
-					else
-					{
-						synchronized ( sshLog )
-						{
-							sshLog.logToConsole( "Empty command. Wait...",
-									LogCollector.INFO );
-						}
-						Thread.sleep( WAIT );
-						continue;
-					}
-				}
+				sshShell.waitFor( ClientChannel.CLOSED, 0 );
 			}
-			catch ( InterruptedException e )
-			{
-				// TODO Auto-generated catch block
-				synchronized ( sshLog )
-				{
-					sshLog.logToConsole(
-							"Command execution thread terminated because of interruption.",
-							LogCollector.WARN );
-					sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
-				}
-			}
-			catch ( IOException e )
-			{
-				// TODO Auto-generated catch block
-				synchronized ( sshLog )
-				{
-					sshLog.logToConsole(
-							"Command execution thread terminated because of pipe problem.",
-							LogCollector.WARN );
-					sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
-				}
-			}
-			finally
-			{
-				cmdFinishFlag = FLAG_ON;
-				execThreadSwitch = FLAG_OFF;
-				uninit();
-			}
+			uninit();
 		}
 	}
 
+	/**
+	 * 数据收集线程类.
+	 * <p>
+	 * 收集SSH连接的控制台输出.
+	 * 
+	 * @author jiangkai
+	 * @version 1.0
+	 */
 	private class GetDataThread implements Runnable
 	{
 		private StringBuilder buffer = new StringBuilder();
 
+		/**
+		 * 线程主方法.
+		 */
 		public void run()
 		{
 			int length = 0;
 			byte[] ret = null;
+			int waitFlag = FLAG_OFF;
+			String content = null;
 			try
 			{
 				while ( dataThreadSwitch == FLAG_ON )
 				// 当data线程开关打开时，线程循环执行。
 				{
-					if ( (length = readData.available()) == 0
-							&& buffer.length() > 0
-							&& dataFinishFlag == FLAG_OFF )
-					// 当管道中数据长度为0.且缓冲区不为空时，表示数据传输完毕。
-					{
-						// 将缓存中的数据添加到命令返回值列表中。
-						synchronized ( result )
-						{
-							result.add( buffer.toString() );
-						}
-						buffer.delete( 0, buffer.length() );
-						ret = null;
-						dataFinishFlag = FLAG_ON;
-						sshShell.close( false );
-					}
-					else
+					writeData.flush();
+					if ( (length = readData.available()) > 0 )
+					// 如果管道中数据不为空则读取数据并重置等待标志。
 					{
 						ret = new byte[ length ];
 						readData.read( ret );
 						buffer.append( new String( ret ) );
+						waitFlag = FLAG_OFF;
+						dataFinishFlag = FLAG_OFF;
 					}
-					ret = null;
+					else
+					{
+						// 当管道中数据为空时，判断命令是否已执行结束。
+						if ( isDataEnd() )
+						{
+							if ( waitFlag == FLAG_ON )
+							// 如果已经是第2次检测到命令行提示符,则说明命令已执行完毕.
+							{
+								content = buffer.substring( 0,
+										buffer.lastIndexOf( "[" ) );
+								if ( content != null && content.length() > 0 )
+								{
+									synchronized ( result )
+									{
+										result.append( content );
+									}
+									buffer.delete( 0, buffer.lastIndexOf( "[" ) );
+									dataFinishFlag = FLAG_ON;
+								}
+								Thread.sleep( WAIT );
+							}
+							else
+							// 如果第1次检测到命令行提示符,可能是命令尚未发送,进行等待.
+							{
+								waitFlag = FLAG_ON;
+								Thread.sleep( WAIT );
+							}
+						}
+					}
+				}
+			}
+			catch ( InterruptedException e )
+			{
+				synchronized ( sshLog )
+				{
+					sshLog.logToConsole(
+							"Data collection thread terminated because of interruption.",
+							LogCollector.ERROR );
+					sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
 				}
 			}
 			catch ( IOException e )
@@ -499,14 +589,45 @@ public class SshConsole
 				{
 					sshLog.logToConsole(
 							"Data collection thread terminated because of pipe problem.",
-							LogCollector.WARN );
-					sshLog.logToConsole( e.getMessage(), LogCollector.WARN );
+							LogCollector.ERROR );
+					sshLog.logToConsole( e.getMessage(), LogCollector.ERROR );
 				}
 			}
 			finally
 			{
+				dataFinishFlag = FLAG_ON;
 				dataThreadSwitch = FLAG_OFF;
 			}
+		}
+
+		/**
+		 * 判断命令的控制台输出已经完成.
+		 * <p>
+		 * 根据命令行提示符判断控制台输出是否已完成.
+		 * <p>
+		 * 此判断基于以下事实:
+		 * <p>
+		 * 当一条命令执行完毕后,最后显示的一行文字的末尾必定是命令行提示符.
+		 * 
+		 * @return 输出是否已完成.
+		 * @bug 当控制台输出恰好与命令行提示符格式一致时会导致误判.
+		 */
+		private boolean isDataEnd()
+		{
+			String flag = buffer.substring( buffer.lastIndexOf( "\n" ) + 1,
+					buffer.length() );
+			int indexLeft = flag.lastIndexOf( "[" );
+			int indexRight = flag.lastIndexOf( "@" );
+			if ( indexLeft == -1 || indexRight == -1 || indexLeft > indexRight )
+			{
+				return false;
+			}
+			if ( flag.substring( indexLeft, indexRight )
+					.equals( "[" + username ) )
+			{
+				return true;
+			}
+			return false;
 		}
 	}
 }

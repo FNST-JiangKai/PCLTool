@@ -196,7 +196,7 @@ public class RT_test
 
 		}
 		
-		private void AddNodeToQueue(Queue q,CommandNode node)
+		private void __AddNodeToQueue__(Queue q,CommandNode node)
 		{
 			try
 			{
@@ -231,14 +231,7 @@ public class RT_test
 		{
 			if ( IfStack.empty() && WhileStack.empty() )
 			{
-				try
-				{
-					if ( !CMDTree.offer( node ) )
-					{
-						RTTestLog.logToConsole( "Add node to queue Failed.",
-								LogCollector.ERROR );
-					}
-				}
+				__AddNodeToQueue__(CMDTree,node);
 			}
 			else
 			{

@@ -41,7 +41,7 @@ public class RT_test
 		public byte NodeStyle = COMMANDNODE;// 默认节点类型为command
 
 		// public String JudgementConditions = null;
-		public String NodeData = null;
+		private String NodeData = null;
 		public Queue< CommandNode > TrueCmdTree = null;
 		public Queue< CommandNode > FalseCmdTree = null;
 		public Boolean Switch = true; // 默认只有TrueCmdTree
@@ -53,6 +53,40 @@ public class RT_test
 			TrueCmdTree = new LinkedList< CommandNode >();
 			FalseCmdTree = new LinkedList< CommandNode >();
 			Switch = true;
+		}
+		
+		/**
+		 * 执行当前节点
+		 */
+		public void execute()
+		{
+			switch(NodeStyle)
+			{
+			case COMMANDNODE:
+			{
+				;//如果是普通节点，则调用执行函数进行执行
+				//以打印代替
+				System.out.print( NodeData );
+				break;
+			}
+			case IFNODE:
+			{
+				;//设置Switch的值，仅仅是设置Switch的值
+				if(Switch)
+				{
+					;//遍历TrueCmdTree， 依次调用node.execute()
+				}
+				else
+				{
+					//遍历FalseCmdTree， 依次调用node.execute()
+				}
+				break;
+			}
+			case WHILENODE:
+				;//设置Switch的值，仅仅是设置Switch的值
+				//类提供方法设置Switch的值
+				break;
+			}
 		}
 	}
 
@@ -83,10 +117,18 @@ public class RT_test
 			CMDLIST.put( "while", 4 );
 			CMDLIST.put( "endwhile", 5 );
 
-			;
+			TestCaseFile = new File(TestCaseFilePath);
+			if(!TestCaseFile.exists())		//如果文件不存在
+			{
+				;
+			}
+			else
+			{
+				
+			}
 		}
 
-		public void AddCommandToCMDTree( String Command )
+		private void AddCommandToCMDTree( String Command )
 		{
 			Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
 			String CommandList[] = Command.split( " " ); // 将命令按空格区分
@@ -147,7 +189,7 @@ public class RT_test
 						else
 						{
 							IfStack.pop(); // 弹出最近一个IF节点。
-							if(SwitchStack.peek() == SWITCHIFSTACK)
+							if ( SwitchStack.peek() == SWITCHIFSTACK )
 							{
 								SwitchStack.pop();
 							}
@@ -198,7 +240,7 @@ public class RT_test
 						else
 						{
 							WhileStack.pop(); // 弹出最近一个While节点。
-							if(SwitchStack.peek() == SWITCHWHILESTACK)
+							if ( SwitchStack.peek() == SWITCHWHILESTACK )
 							{
 								SwitchStack.pop();
 							}
@@ -224,6 +266,12 @@ public class RT_test
 			}
 
 		}
+		
+		/**
+		 * 将节点node插入队列q中，并且根据节点类型设置IfStack和WhileStack
+		 * @param q	队列
+		 * @param node 待插入节点
+		 */
 
 		private void __AddNodeToQueue__( Queue< CommandNode > q,
 				CommandNode node )
@@ -246,7 +294,7 @@ public class RT_test
 					}
 					if ( node.NodeStyle == WHILENODE )
 					{
-						node.Switch = false;
+						node.Switch = true;
 						WhileStack.push( node );
 						SwitchStack.push( SWITCHWHILESTACK );
 					}
@@ -273,23 +321,23 @@ public class RT_test
 
 		}
 
-		public void AddNodeToQueue( CommandNode node )
+		private void AddNodeToQueue( CommandNode node )
 		{
 			if ( SwitchStack.empty() )
 			{
-				if(IfStack.empty() && WhileStack.empty())
+				if ( IfStack.empty() && WhileStack.empty() )
 				{
 					__AddNodeToQueue__( CMDTree, node );
 				}
 				else
 				{
-					RTTestLog.logToConsole( "Stack Error.",
-							LogCollector.ERROR );
+					RTTestLog.logToConsole( "Stack Error.", LogCollector.ERROR );
 				}
 			}
 			else
 			{
-				if ( SwitchStack.peek()==SWITCHIFSTACK && IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
+				if ( SwitchStack.peek() == SWITCHIFSTACK
+						&& IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
 				{
 					CommandNode LastIfNode = IfStack.pop();
 					if ( LastIfNode.Switch == true ) // if条件成立语句块
@@ -303,7 +351,8 @@ public class RT_test
 					}
 					IfStack.push( LastIfNode );
 				}
-				if ( SwitchStack.peek()== SWITCHWHILESTACK && WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
+				if ( SwitchStack.peek() == SWITCHWHILESTACK
+						&& WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
 				{
 					CommandNode LastWhileNode = WhileStack.pop();
 					__AddNodeToQueue__( LastWhileNode.TrueCmdTree, node );

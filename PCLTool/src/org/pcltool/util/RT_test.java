@@ -50,6 +50,9 @@ public class RT_test
 		{
 			this.NodeStyle = NodeStyle;
 			this.NodeData = NodeData;
+			TrueCmdTree = new LinkedList< CommandNode >();
+			FalseCmdTree = new LinkedList< CommandNode >();
+			Switch = true;
 		}
 	}
 
@@ -145,7 +148,7 @@ public class RT_test
 				}
 				case 4: // while
 				{
-					if(CommandList.length != 2)
+					if ( CommandList.length != 2 )
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
@@ -154,7 +157,8 @@ public class RT_test
 					else
 					{
 						String Condition = CommandList[ 1 ];
-						CommandNode node = new CommandNode( WHILENODE, Condition );
+						CommandNode node = new CommandNode( WHILENODE,
+								Condition );
 						node.Switch = true;
 						AddNodeToQueue( node );
 					}
@@ -162,7 +166,7 @@ public class RT_test
 				}
 				case 5: // endwhile
 				{
-					if (CommandList.length != 1)
+					if ( CommandList.length != 1 )
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
@@ -191,33 +195,71 @@ public class RT_test
 			}
 
 		}
+		
+		private void AddNodeToQueue(Queue q,CommandNode node)
+		{
+			try
+			{
+				if ( !q.offer( node ) )
+				{
+					RTTestLog.logToConsole( "Add node to queue Failed.",
+							LogCollector.ERROR );
+				}
+			}
+			catch ( ClassCastException e )
+			{
+				e.printStackTrace();
+				RTTestLog.logToConsole( "Unsupported node type.",
+						LogCollector.ERROR );
+			}
+			catch ( NullPointerException e )
+			{
+				e.printStackTrace();
+				RTTestLog.logToConsole( "Unsupported null node.",
+						LogCollector.ERROR );
+			}
+			catch ( IllegalArgumentException e )
+			{
+				e.printStackTrace();
+				RTTestLog.logToConsole( "Unsupported argument.",
+						LogCollector.ERROR );
+			}
+			
+		}
 
 		public void AddNodeToQueue( CommandNode node )
 		{
 			if ( IfStack.empty() && WhileStack.empty() )
 			{
-				CMDTree.add( node );
+				try
+				{
+					if ( !CMDTree.offer( node ) )
+					{
+						RTTestLog.logToConsole( "Add node to queue Failed.",
+								LogCollector.ERROR );
+					}
+				}
 			}
 			else
 			{
-				if ( StackSwitch = true && IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
+				if ( StackSwitch == true && IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
 				{
 					CommandNode LastIfNode = IfStack.pop();
 					if ( LastIfNode.Switch == true ) // if条件成立语句块
 					{
-						LastIfNode.TrueCmdTree.add( node );
+						LastIfNode.TrueCmdTree.offer( node );
 					}
 					else
 					// else后if条件语句块
 					{
-						LastIfNode.FalseCmdTree.add( node );
+						LastIfNode.FalseCmdTree.offer( node );
 					}
 					IfStack.push( LastIfNode );
 				}
-				if ( StackSwitch = false && WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
+				if ( StackSwitch == false && WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
 				{
 					CommandNode LastWhileNode = WhileStack.pop();
-					LastWhileNode.TrueCmdTree.add( node );
+					LastWhileNode.TrueCmdTree.offer( node );
 					WhileStack.push( LastWhileNode );
 				}
 				else

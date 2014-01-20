@@ -13,24 +13,33 @@ public class DebugFrame
 	public static void main( String[] args )
 	{
 		// TODO Auto-generated method stub
-		testPathHandler();
+		// testPathHandler();
+		testRTTest();
+	}
+
+	public static void testRTTest()
+	{
+		RT_test a = new RT_test( "D:/test.sh" );
+		a.startTest();
 	}
 
 	public static void testPathHandler()
 	{
 		ScpConsole scpConsole = new ScpConsole();
-		scpConsole.init( "10.124.115.213", SshConsole.DEFAULT_PORT, "root", "cscenter" );
+		scpConsole.init( "10.124.115.213", SshConsole.DEFAULT_PORT, "root",
+				"cscenter" );
 
-		String[] locals = {
+		String[] locals =
+		{
 				"W:\\scpTest\\upload\\test.txt",
-				"W:\\scpTest\\upload\\中文文件.txt",
-				"W:\\scpTest\\upload\\中文测试\\",
+				"W:\\scpTest\\upload\\中文文件.txt", "W:\\scpTest\\upload\\中文测试\\",
 				"W:\\scpTest\\download\\download.txt",
 				"W:\\scpTest\\download\\日文.txt",
 				"W:\\scpTest\\download\\badpath\\dir\\",
 		};
-		
-		String[] remotes = {
+
+		String[] remotes =
+		{
 				"/sf9-fnst/scp/upload/fromwin.txt",
 				"/sf9-fnst/scp/upload/badpath/fromwin.txt",
 				"/sf9-fnst/scp/upload/test/",
@@ -38,17 +47,17 @@ public class DebugFrame
 				"/sf9-fnst/scp/download/ディレクトリ.txt",
 				"/sf9-fnst/scp/download/そのよう/",
 		};
-		
-		for(int i = 0 ; i < 3 ; i++)
+
+		for ( int i = 0; i < 3; i++ )
 		{
-			scpConsole.upload( locals[i], remotes[i] );
+			scpConsole.upload( locals[ i ], remotes[ i ] );
 		}
-		
-		for(int i = 3 ; i < 6 ; i++)
+
+		for ( int i = 3; i < 6; i++ )
 		{
-			scpConsole.download( remotes[i], locals[i] );
+			scpConsole.download( remotes[ i ], locals[ i ] );
 		}
-		
+
 		scpConsole.uninit();
 	}
 

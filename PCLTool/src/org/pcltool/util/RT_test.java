@@ -15,8 +15,6 @@ public class RT_test
 	private static final byte COMMANDNODE = 0;
 	private static final byte IFNODE = 1;
 	private static final byte WHILENODE = 2;
-	private static final byte EMPTYNODE = 3;
-	private static final byte ENDWHILENODE = 4;
 
 	/*
 	 * 支持的命令集
@@ -26,15 +24,28 @@ public class RT_test
 			.createLogCollector( "rttestlog" );
 	private MakeCommandTree cmdt = null;
 
+	private Boolean isTestReady = false;
+
 	public RT_test( String RTTestCaseFilePath )
 	{
 		CMDTree = new LinkedList< CommandNode >();
-		cmdt = new MakeCommandTree( RTTestCaseFilePath );
+		try
+		{
+			cmdt = new MakeCommandTree( RTTestCaseFilePath );
+			isTestReady = true;
+		}
+		catch ( CreateCMDTreeErrorException e )
+		{
+			// TODO Auto-generated catch block
+			isTestReady = false;
+			e.printStackTrace();
+		}
 	}
 
 	public void startTest()
 	{
-		cmdt.ExecuteCommandTree();
+		if ( isTestReady )
+			cmdt.ExecuteCommandTree();
 	}
 
 	public Queue< CommandNode > CMDTree = null;
@@ -196,6 +207,7 @@ public class RT_test
 		private HashMap< String, Integer > CMDLIST = null;
 
 		public MakeCommandTree( String TestCaseFilePath )
+				throws CreateCMDTreeErrorException
 		{
 			CMDLIST = new HashMap< String, Integer >();
 			IfStack = new Stack< CommandNode >();
@@ -237,13 +249,30 @@ public class RT_test
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-
+			if ( !this.IfStack.empty() )
+			{
+				RTTestLog
+						.logToConsole( "If 语法错误，缺少endif\n", LogCollector.ERROR );
+			}
+			if ( !this.WhileStack.empty() )
+			{
+				RTTestLog.logToConsole( "While 语法错误，缺少endwhile\n",
+						LogCollector.ERROR );
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"While 语法错误，缺少endwhile\n" );
+				throw exception;
+			}
 		}
 
 		private void AddCommandToCMDTree( String Command )
 		{
 			Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
+			Command = Command.trim();// 删除命令前后空格
 			String CommandList[] = Command.split( " " ); // 将命令按空格区分
+			if ( CommandList.length == 0 ) // 如果命令只有一个空格
+			{
+				return;
+			}
 			if ( CMDLIST.containsKey( CommandList[ 0 ] ) )
 			{
 				switch ( CMDLIST.get( CommandList[ 0 ] ) )
@@ -276,9 +305,8 @@ public class RT_test
 					}
 					else
 					{
-						CommandNode LastIfNode = IfStack.pop();
+						CommandNode LastIfNode = IfStack.peek();
 						LastIfNode.Switch = false; // 将if语句块中开关指向False
-						IfStack.push( LastIfNode );
 					}
 					break;
 				}
@@ -364,6 +392,7 @@ public class RT_test
 							}
 						}
 					}
+					break;
 				}
 				default:
 					RTTestLog.logToConsole( "Unknown Error.AddCommandToTree.",
@@ -376,7 +405,6 @@ public class RT_test
 				CommandNode node = new CommandNode( COMMANDNODE, Command );
 				AddNodeToQueue( node );
 			}
-
 		}
 
 		/**
@@ -403,13 +431,13 @@ public class RT_test
 					// 成功将节点插入队列中判断当前节点类型
 					if ( node.NodeStyle == IFNODE )
 					{
-						node.Switch = true;
+						// node.Switch = true;
 						IfStack.push( node );
 						SwitchStack.push( SWITCHIFSTACK );
 					}
 					if ( node.NodeStyle == WHILENODE )
 					{
-						node.Switch = true;
+						// node.Switch = true;
 						WhileStack.push( node );
 						SwitchStack.push( SWITCHWHILESTACK );
 					}
@@ -454,7 +482,7 @@ public class RT_test
 				if ( SwitchStack.peek() == SWITCHIFSTACK
 						&& IfStack.empty() != true ) // 当前栈为IF栈，并且栈非空
 				{
-					CommandNode LastIfNode = IfStack.pop();
+					CommandNode LastIfNode = IfStack.peek();
 					if ( LastIfNode.Switch == true ) // if条件成立语句块
 					{
 						__AddNodeToQueue__( LastIfNode.TrueCmdTree, node );
@@ -464,7 +492,6 @@ public class RT_test
 					{
 						__AddNodeToQueue__( LastIfNode.FalseCmdTree, node );
 					}
-					IfStack.push( LastIfNode );
 				}
 				else
 				{
@@ -497,4 +524,5 @@ public class RT_test
 			}
 		}
 	}
+
 }

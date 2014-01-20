@@ -24,10 +24,17 @@ public class RT_test
 
 	private LogCollector RTTestLog = LogCollector
 			.createLogCollector( "rttestlog" );
+	private MakeCommandTree cmdt = null;
 
 	public RT_test( String RTTestCaseFilePath )
 	{
-		;
+		cmdt = new MakeCommandTree( RTTestCaseFilePath );
+		CMDTree = new LinkedList <CommandNode>();
+	}
+	
+	public void startTest()
+	{
+		cmdt.ExecuteCommandTree();
 	}
 
 	public Queue< CommandNode > CMDTree = null;
@@ -54,38 +61,121 @@ public class RT_test
 			FalseCmdTree = new LinkedList< CommandNode >();
 			Switch = true;
 		}
-		
+
 		/**
 		 * 执行当前节点
 		 */
 		public void execute()
 		{
-			switch(NodeStyle)
+			switch ( NodeStyle )
 			{
 			case COMMANDNODE:
 			{
-				;//如果是普通节点，则调用执行函数进行执行
-				//以打印代替
+				;// 如果是普通节点，则调用执行函数进行执行
+					// 以打印代替
 				System.out.print( NodeData );
 				break;
 			}
 			case IFNODE:
 			{
-				;//设置Switch的值，仅仅是设置Switch的值
-				if(Switch)
+				if ( !setSwitch() )// 设置Switch的值，仅仅是设置Switch的值
 				{
-					;//遍历TrueCmdTree， 依次调用node.execute()
+					RTTestLog.logToConsole( "Set Switch value failed. Command:"
+							+ NodeData, LogCollector.ERROR );
+					return;
+				}
+				if ( Switch )
+				{
+					// 遍历TrueCmdTree， 依次调用node.execute()
+					CommandNode node = this.TrueCmdTree.poll();
+					while ( node != null )
+					{
+						node.execute();
+						node = this.TrueCmdTree.poll();
+					}
 				}
 				else
 				{
-					//遍历FalseCmdTree， 依次调用node.execute()
+					// 遍历FalseCmdTree， 依次调用node.execute()
+					CommandNode node = this.FalseCmdTree.poll();
+					while ( node != null )
+					{
+						node.execute();
+						node = this.FalseCmdTree.poll();
+					}
 				}
 				break;
 			}
 			case WHILENODE:
-				;//设置Switch的值，仅仅是设置Switch的值
-				//类提供方法设置Switch的值
+			{
+				if ( !setSwitch() )// 设置Switch的值，仅仅是设置Switch的值
+				{
+					RTTestLog.logToConsole( "Set Switch value failed. Command:"
+							+ NodeData, LogCollector.ERROR );
+					return;
+				}
+				while ( Switch )
+				{
+					Queue< CommandNode > WhileTree = new LinkedList< CommandNode >(
+							this.TrueCmdTree );
+					CommandNode node = WhileTree.poll();
+					while ( node != null )
+					{
+						node.execute();
+						node = WhileTree.poll();
+					}
+					if ( !setSwitch() )// 设置Switch的值，仅仅是设置Switch的值
+					{
+						RTTestLog.logToConsole(
+								"Set Switch value failed. Command:" + NodeData,
+								LogCollector.ERROR );
+						return;
+					}
+				}
 				break;
+			}
+			default:
+				RTTestLog.logToConsole( "Unsupported NodeType",
+						LogCollector.ERROR );
+				return;
+			}
+		}
+
+		private Boolean setSwitch()
+		{
+			/**
+			 * 如果是判断节点，则根据条件设置Switch的值
+			 */
+
+			// 测试版本
+			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
+			{
+				if ( this.NodeData == "true" )
+				{
+					this.Switch = true;
+					return true;
+				}
+				if ( this.NodeData == "false" )
+				{
+					this.Switch = false;
+					return true;
+				}
+
+				return false;
+				// 暂不支持while
+				// if ( this.NodeData.startsWith( "loop" ) )
+				// {
+				// counter = this.NodeData.replaceAll( "loop", "" );
+				// return true;
+				// }
+
+			}
+			else
+			{
+				RTTestLog.logToConsole(
+						"Only IFNODE and WHILENODE has this interface.",
+						LogCollector.ERROR );
+				return false;
 			}
 		}
 	}
@@ -101,7 +191,7 @@ public class RT_test
 		final Byte SWITCHIFSTACK = 1;
 		final Byte SWITCHWHILESTACK = 2;
 
-		private Stack< Byte > SwitchStack = new Stack< Byte >();
+		private Stack< Byte > SwitchStack = null;
 
 		private HashMap< String, Integer > CMDLIST = null;
 
@@ -110,6 +200,7 @@ public class RT_test
 			CMDLIST = new HashMap< String, Integer >();
 			IfStack = new Stack< CommandNode >();
 			WhileStack = new Stack< CommandNode >();
+			SwitchStack = new Stack< Byte >();
 
 			CMDLIST.put( "if", 1 );
 			CMDLIST.put( "else", 2 );
@@ -117,15 +208,35 @@ public class RT_test
 			CMDLIST.put( "while", 4 );
 			CMDLIST.put( "endwhile", 5 );
 
-			TestCaseFile = new File(TestCaseFilePath);
-			if(!TestCaseFile.exists())		//如果文件不存在
+			try
 			{
-				;
+				TestCaseFile = new File( TestCaseFilePath );
+				FileInputStream fis = new FileInputStream( TestCaseFile );
+				InputStreamReader isr = new InputStreamReader( fis, "UTF-8" );
+				BufferedReader br = new BufferedReader( isr );
+				String strCommand = "";
+				while ( (strCommand = br.readLine()) != null )
+				{
+					AddCommandToCMDTree( strCommand );
+				}
+				fis.close();
 			}
-			else
+			catch ( FileNotFoundException e )
 			{
-				
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
+			catch ( UnsupportedEncodingException e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			catch ( IOException e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
 		}
 
 		private void AddCommandToCMDTree( String Command )
@@ -266,11 +377,14 @@ public class RT_test
 			}
 
 		}
-		
+
 		/**
 		 * 将节点node插入队列q中，并且根据节点类型设置IfStack和WhileStack
-		 * @param q	队列
-		 * @param node 待插入节点
+		 * 
+		 * @param q
+		 * 队列
+		 * @param node
+		 * 待插入节点
 		 */
 
 		private void __AddNodeToQueue__( Queue< CommandNode > q,
@@ -368,58 +482,14 @@ public class RT_test
 			}
 		}
 
-		public void ExecuteCommandTree( Queue< CommandNode > que )
+		public void ExecuteCommandTree()
 		{
-			while ( que.size() > 0 )
+			CommandNode node = CMDTree.poll();
+			while ( node != null )
 			{
-				CommandNode node = que.element(); // 取出队列头
-				if ( node.NodeStyle == IFNODE ) // if节点，根据条件决定取出哪个队列进行执行
-				{
-					;// 根据条件设置Switch的值
-						// 设置Switch值还没写。
-					if ( node.Switch == true
-							&& node.TrueCmdTree.isEmpty() == false )
-					{
-						ExecuteCommandTree( node.TrueCmdTree );
-					}
-					if ( node.Switch == false
-							&& node.FalseCmdTree.isEmpty() == false )
-					{
-						ExecuteCommandTree( node.FalseCmdTree );
-					}
-					else
-					{
-						RTTestLog.logToConsole( "IFNODE Switch Error.",
-								LogCollector.ERROR );
-						return;
-					}
-					que.remove(); // if语句块执行结束后，将if语句块在当前队列中删除。
-				}
-				if ( node.NodeStyle == WHILENODE )
-				{
-					;// 根据条件设置Switch的值
-						// 设置Switch值还没写。
-					while ( node.Switch == true
-							&& node.TrueCmdTree.isEmpty() != true )
-					{
-						Queue< CommandNode > WhileQueue = new LinkedList< CommandNode >(
-								node.TrueCmdTree );
-						ExecuteCommandTree( WhileQueue );
-						;// 根据条件，设置Switch的值。
-					}
-				}
-				if ( node.NodeStyle == COMMANDNODE )
-				{
-					;// 如果节点只是普通节点，取出节点内数据进行操作
-						// 操作函数还没有写。
-					que.remove(); // 执行结束后，将节点在队列头删除。、
-				}
-				else
-				{
-					;
-				}
+				node.execute();
+				node = CMDTree.poll();
 			}
 		}
-
 	}
 }

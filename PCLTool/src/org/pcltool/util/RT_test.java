@@ -12,13 +12,13 @@ import java.util.*;
 
 public class RT_test
 {
-	final byte COMMANDNODE = 0;
-	final byte IFNODE = 1;
-	final byte WHILENODE = 2;
-	final byte EMPTYNODE = 3;
-	final byte ENDWHILENODE = 4;
+	private static final byte COMMANDNODE = 0;
+	private static final byte IFNODE = 1;
+	private static final byte WHILENODE = 2;
+	private static final byte EMPTYNODE = 3;
+	private static final byte ENDWHILENODE = 4;
 
-	/* 
+	/*
 	 * 支持的命令集
 	 */
 
@@ -28,10 +28,10 @@ public class RT_test
 
 	public RT_test( String RTTestCaseFilePath )
 	{
+		CMDTree = new LinkedList< CommandNode >();
 		cmdt = new MakeCommandTree( RTTestCaseFilePath );
-		CMDTree = new LinkedList <CommandNode>();
 	}
-	
+
 	public void startTest()
 	{
 		cmdt.ExecuteCommandTree();
@@ -73,7 +73,7 @@ public class RT_test
 			{
 				;// 如果是普通节点，则调用执行函数进行执行
 					// 以打印代替
-				System.out.print( NodeData );
+				System.out.print( NodeData + "\n" );
 				break;
 			}
 			case IFNODE:
@@ -150,12 +150,12 @@ public class RT_test
 			// 测试版本
 			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
 			{
-				if ( this.NodeData == "true" )
+				if ( this.NodeData.equals( "true" ) )
 				{
 					this.Switch = true;
 					return true;
 				}
-				if ( this.NodeData == "false" )
+				if ( this.NodeData.equals( "false" ) )
 				{
 					this.Switch = false;
 					return true;
@@ -217,6 +217,7 @@ public class RT_test
 				String strCommand = "";
 				while ( (strCommand = br.readLine()) != null )
 				{
+					strCommand = strCommand.split( "\n" )[ 0 ];
 					AddCommandToCMDTree( strCommand );
 				}
 				fis.close();
@@ -465,19 +466,23 @@ public class RT_test
 					}
 					IfStack.push( LastIfNode );
 				}
-				if ( SwitchStack.peek() == SWITCHWHILESTACK
-						&& WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
-				{
-					CommandNode LastWhileNode = WhileStack.pop();
-					__AddNodeToQueue__( LastWhileNode.TrueCmdTree, node );
-					WhileStack.push( LastWhileNode );
-				}
 				else
 				{
-					RTTestLog.logToConsole(
-							"ERROR in Making CommandTree. Wrong StackSwitch.",
-							LogCollector.ERROR );
-					return;
+					if ( SwitchStack.peek() == SWITCHWHILESTACK
+							&& WhileStack.empty() != true ) // 当前栈为WHILE栈，并且栈非空
+					{
+						CommandNode LastWhileNode = WhileStack.pop();
+						__AddNodeToQueue__( LastWhileNode.TrueCmdTree, node );
+						WhileStack.push( LastWhileNode );
+					}
+					else
+					{
+						RTTestLog
+								.logToConsole(
+										"ERROR in Making CommandTree. Wrong StackSwitch.",
+										LogCollector.ERROR );
+						return;
+					}
 				}
 			}
 		}

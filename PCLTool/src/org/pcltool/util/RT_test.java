@@ -203,7 +203,7 @@ public class RT_test
 				ssh.uninit();
 			}
 			else
-			{
+			{ 
 				RTTestLog.logToConsole( "节点没有初始化。", LogCollector.ERROR );
 				return;
 			}
@@ -809,3 +809,4 @@ public class RT_test
 		}
 	}
 }
+

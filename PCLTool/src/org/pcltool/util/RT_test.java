@@ -7,7 +7,12 @@ import org.pcltool.log.LogCollector;
 import java.util.*;
 
 /*
- * 
+ *      1. 写全注释 -->完成
+ * 		2. 完善异常抛出 -->完成
+ * 		3. ssh调试
+ * 			a. 修改命令执行方式
+ * 			b. 修改switch设置方式
+ * 		4. 修改log输出
  * */
 
 public class RT_test
@@ -22,9 +27,80 @@ public class RT_test
 
 	private LogCollector RTTestLog = LogCollector
 			.createLogCollector( "rttestlog" );
-	private MakeCommandTree cmdt = null;
+	// 全局命令树
+	private Queue< CommandNode > CMDTree = null;
 
 	private Boolean isTestReady = false;
+	private MakeCommandTree cmdt = null;
+	private Node node = null;
+
+	private class Node
+	{
+		public String hostIP = null;
+		public String userName = null;
+		public String passWord = null;
+		private int sshPort = 22;
+		private SshConsole ssh = null;
+
+		public Node( String hostIP, String userName, String passWord )
+		{
+			this.hostIP = hostIP;
+			this.userName = userName;
+			this.passWord = passWord;
+			ssh = new SshConsole();
+			// ssh.init( this.hostIP, sshPort , this.userName, this.passWord );
+		}
+
+		public void SSHInit()
+		{
+			if ( ssh != null )
+			{
+				ssh.init( this.hostIP, sshPort, this.userName, this.passWord );
+			}
+			else
+			{
+				RTTestLog.logToConsole( "节点没有初始化。", LogCollector.ERROR );
+				return;
+			}
+		}
+
+		public void SSHUnInit()
+		{
+			if ( ssh != null )
+			{
+				ssh.uninit();
+			}
+			else
+			{
+				RTTestLog.logToConsole( "节点没有初始化。", LogCollector.ERROR );
+				return;
+			}
+		}
+
+		public void executeCommand( String Command )
+		{
+			if ( Command.startsWith( "#@" ) ) // java命令
+			{
+				System.out.print( Command );
+			}
+			else
+			{
+				// shell命令
+				// 缺少输出处理
+				String sshOutput = ssh.executeCommand( Command );
+				System.out.print( "#" + sshOutput );
+			}
+		}
+	}
+
+	/**
+	 * 根据RTTestcaseFilePath路径指示文件，构造命令树 如果没有异常，则设置isTestReady为True
+	 * 否则设置isTestReady为False
+	 * 
+	 * 待测试脚本路径。
+	 * 
+	 * @param RTTestCaseFilePath
+	 */
 
 	public RT_test( String RTTestCaseFilePath )
 	{
@@ -42,14 +118,39 @@ public class RT_test
 		}
 	}
 
+	/**
+	 * 开始执行测试，便利命令树，并且执行命令树节点命令
+	 * 
+	 */
 	public void startTest()
 	{
 		if ( isTestReady )
-			cmdt.ExecuteCommandTree();
+		{
+			ExecuteCommandTree();
+			if ( this.node != null )
+				node.SSHUnInit();
+		}
 	}
 
-	public Queue< CommandNode > CMDTree = null;
+	/**
+	 * 遍历执行CMDTree。
+	 */
+	private void ExecuteCommandTree()
+	{
+		CommandNode node = CMDTree.poll();
+		while ( node != null )
+		{
+			node.execute();
+			node = CMDTree.poll();
+		}
+	}
 
+	/**
+	 * 命令节点，语句块的抽象，普通节点只包含待执行命令数据 判断节点包含判断条件、TrueCmdTree命令树和FalseCmdTree命令树
+	 * 
+	 * @author gaot.fnst
+	 * 
+	 */
 	private class CommandNode
 	{
 		/*
@@ -58,10 +159,12 @@ public class RT_test
 
 		public byte NodeStyle = COMMANDNODE;// 默认节点类型为command
 
-		// public String JudgementConditions = null;
-		private String NodeData = null;
+		private String NodeData = null;// 命令数据
+		// 当判断条件为真时，要执行的命令树
 		public Queue< CommandNode > TrueCmdTree = null;
 		public Queue< CommandNode > FalseCmdTree = null;
+		// 构建命令树时用来区分条件真语句块和条件假语句块
+		// 执行命令树使用来标识条件的真假
 		public Boolean Switch = true; // 默认只有TrueCmdTree
 
 		public CommandNode( byte NodeStyle, String NodeData )
@@ -74,17 +177,46 @@ public class RT_test
 		}
 
 		/**
-		 * 执行当前节点
+		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树
 		 */
 		public void execute()
 		{
+			System.out.print( SimpleUtil.generateTimestamp( SimpleUtil.TIMESTAMP_ALL )+"\n");
 			switch ( NodeStyle )
 			{
 			case COMMANDNODE:
 			{
-				;// 如果是普通节点，则调用执行函数进行执行
-					// 以打印代替
-				System.out.print( NodeData + "\n" );
+				/**
+				 * 1. ssh命令 2. shell命令----|__>相同处理 3. java命令-----|
+				 */
+				// #@ssh:ip:user:password
+
+				if ( this.NodeData.startsWith( "#@ssh" ) )
+				{
+					String nodeInfoList[] = this.NodeData.split( ":" );
+					if ( nodeInfoList.length != 4 )
+					{
+						RTTestLog.logToConsole( "ssh语法错误：" + this.NodeData,
+								LogCollector.ERROR );
+						return;
+					}
+					else
+					{
+						String hostIp = nodeInfoList[ 1 ];
+						String userName = nodeInfoList[ 2 ];
+						String passWord = nodeInfoList[ 3 ];
+						if ( node != null )
+							node.SSHUnInit();
+						node = new Node( hostIp, userName, passWord );
+						node.SSHInit();
+					}
+				}
+				else
+				{
+					node.executeCommand( this.NodeData );
+				}
+
+				// System.out.print( this.NodeData + "\n" );
 				break;
 			}
 			case IFNODE:
@@ -152,6 +284,11 @@ public class RT_test
 			}
 		}
 
+		/**
+		 * 根据条件设置类中Switch的值，用来判别需要执行的语句块 设置成功返回true，设置失败返回false
+		 * 
+		 * @return
+		 */
 		private Boolean setSwitch()
 		{
 			/**
@@ -191,6 +328,12 @@ public class RT_test
 		}
 	}
 
+	/**
+	 * 创建命令树类，将脚本中内容按行做成命令节点， 填充进CMDTree中，只进行命令树的制作，相当于编译过程。
+	 * 
+	 * @author gaot.fnst
+	 * 
+	 */
 	private class MakeCommandTree
 	{
 
@@ -238,21 +381,33 @@ public class RT_test
 			{
 				// TODO Auto-generated catch block
 				e.printStackTrace();
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"文件不存在。\n" );
+				throw exception;
 			}
 			catch ( UnsupportedEncodingException e )
 			{
 				// TODO Auto-generated catch block
 				e.printStackTrace();
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"不支持的编码格式\n" );
+				throw exception;
 			}
 			catch ( IOException e )
 			{
 				// TODO Auto-generated catch block
 				e.printStackTrace();
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"IO 错误。\n" );
+				throw exception;
 			}
 			if ( !this.IfStack.empty() )
 			{
 				RTTestLog
 						.logToConsole( "If 语法错误，缺少endif\n", LogCollector.ERROR );
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"If 语法错误，缺少endif\n" );
+				throw exception;
 			}
 			if ( !this.WhileStack.empty() )
 			{
@@ -264,7 +419,15 @@ public class RT_test
 			}
 		}
 
+		/**
+		 * 将字符串做成节点添加到命令树中 字符串命令
+		 * 
+		 * @param Command
+		 * 制作命令树时，发生错误，抛出制作命令树错误异常。
+		 * @throws CreateCMDTreeErrorException
+		 */
 		private void AddCommandToCMDTree( String Command )
+				throws CreateCMDTreeErrorException
 		{
 			Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
 			Command = Command.trim();// 删除命令前后空格
@@ -284,7 +447,9 @@ public class RT_test
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"语法错误\n" );
+						throw exception;
 					}
 					else
 					{
@@ -301,7 +466,9 @@ public class RT_test
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"语法错误：" + Command );
+						throw exception;
 					}
 					else
 					{
@@ -316,7 +483,9 @@ public class RT_test
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"语法错误:" + Command );
+						throw exception;
 					}
 					else
 					{
@@ -324,7 +493,9 @@ public class RT_test
 						{
 							RTTestLog.logToConsole( "IfStack Error",
 									LogCollector.ERROR );
-							return;
+							CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+									"IF栈错误，多余endif" );
+							throw exception;
 						}
 						else
 						{
@@ -337,7 +508,9 @@ public class RT_test
 							{
 								RTTestLog.logToConsole( "IfStack Error",
 										LogCollector.ERROR );
-								return;
+								CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+										"switchstack错误。\n" );
+								throw exception;
 							}
 						}
 					}
@@ -349,7 +522,9 @@ public class RT_test
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"while语法错误" );
+						throw exception;
 					}
 					else
 					{
@@ -367,7 +542,9 @@ public class RT_test
 					{
 						RTTestLog.logToConsole( "Synax Error: " + Command,
 								LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"endwhile语法错误：" + Command );
+						throw exception;
 					}
 					else
 					{
@@ -375,7 +552,9 @@ public class RT_test
 						{
 							RTTestLog.logToConsole( "WhileStack Error",
 									LogCollector.ERROR );
-							return;
+							CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+									"While栈错误，endwhile多余" );
+							throw exception;
 						}
 						else
 						{
@@ -388,7 +567,9 @@ public class RT_test
 							{
 								RTTestLog.logToConsole( "WhileStack Error",
 										LogCollector.ERROR );
-								return;
+								CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+										"switchstack栈错误。\n" );
+								throw exception;
 							}
 						}
 					}
@@ -397,7 +578,9 @@ public class RT_test
 				default:
 					RTTestLog.logToConsole( "Unknown Error.AddCommandToTree.",
 							LogCollector.ERROR );
-					break;
+					CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+							"未知错误，不支持的命令类型。" );
+					throw exception;
 				}
 			}
 			else
@@ -414,10 +597,12 @@ public class RT_test
 		 * 队列
 		 * @param node
 		 * 待插入节点
+		 * @throws CreateCMDTreeErrorException
+		 * 抛出创建命令树失败异常
 		 */
 
 		private void __AddNodeToQueue__( Queue< CommandNode > q,
-				CommandNode node )
+				CommandNode node ) throws CreateCMDTreeErrorException
 		{
 			try
 			{
@@ -425,6 +610,9 @@ public class RT_test
 				{
 					RTTestLog.logToConsole( "Add node to queue Failed.",
 							LogCollector.ERROR );
+					CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+							"节点插入失败。\n" );
+					throw exception;
 				}
 				else
 				{
@@ -448,23 +636,40 @@ public class RT_test
 				e.printStackTrace();
 				RTTestLog.logToConsole( "Unsupported node type.",
 						LogCollector.ERROR );
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"强制类型转换错误。\n" );
+				throw exception;
 			}
 			catch ( NullPointerException e )
 			{
 				e.printStackTrace();
 				RTTestLog.logToConsole( "Unsupported null node.",
 						LogCollector.ERROR );
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"空指针错误。\n" );
+				throw exception;
 			}
 			catch ( IllegalArgumentException e )
 			{
 				e.printStackTrace();
 				RTTestLog.logToConsole( "Unsupported argument.",
 						LogCollector.ERROR );
+				CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+						"参数违法\n" );
+				throw exception;
 			}
 
 		}
 
+		/**
+		 * 将节点加入命令树中 节点
+		 * 
+		 * @param node
+		 * 添加过程中发生错误，抛出异常。
+		 * @throws CreateCMDTreeErrorException
+		 */
 		private void AddNodeToQueue( CommandNode node )
+				throws CreateCMDTreeErrorException
 		{
 			if ( SwitchStack.empty() )
 			{
@@ -475,6 +680,9 @@ public class RT_test
 				else
 				{
 					RTTestLog.logToConsole( "Stack Error.", LogCollector.ERROR );
+					CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+							"栈错误，缺少endif或者endwhile.\n" );
+					throw exception;
 				}
 			}
 			else
@@ -508,21 +716,12 @@ public class RT_test
 								.logToConsole(
 										"ERROR in Making CommandTree. Wrong StackSwitch.",
 										LogCollector.ERROR );
-						return;
+						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
+								"while栈错误，缺少endwhile\n" );
+						throw exception;
 					}
 				}
 			}
 		}
-
-		public void ExecuteCommandTree()
-		{
-			CommandNode node = CMDTree.poll();
-			while ( node != null )
-			{
-				node.execute();
-				node = CMDTree.poll();
-			}
-		}
 	}
-
 }

@@ -27,7 +27,7 @@ public class SshConsole
 
 	private static final int CONSOLE_SIZE = 1024;
 	private static final int BUFF_SIZE = 1024;
-	private static final int WAIT = 1000;
+	private static final int WAIT = 100;
 
 	private static final int FLAG_ON = 1;
 	private static final int FLAG_OFF = 0;

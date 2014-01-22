@@ -10,7 +10,7 @@ import java.util.*;
  *      1. 写全注释 -->完成
  * 		2. 完善异常抛出 -->完成
  * 		3. ssh调试
- * 			a. 修改命令执行方式
+ * 			a. 修改命令执行方式 -->完成
  * 			b. 修改switch设置方式
  * 		4. 修改log输出
  * */
@@ -32,7 +32,139 @@ public class RT_test
 
 	private Boolean isTestReady = false;
 	private MakeCommandTree cmdt = null;
-	private Node node = null;
+	private Node hostNode = null;
+	private File sshLog = null;
+	private File TestCaseFile = null; // 测试脚本
+	private FileOutputStream fos = null;
+	private String logDir = "D:/"; // 测试使用
+
+	/**
+	 * 根据RTTestcaseFilePath路径指示文件，构造命令树 如果没有异常，则设置isTestReady为True
+	 * 否则设置isTestReady为False log文件初始化。
+	 * 
+	 * 待测试脚本路径。
+	 * 
+	 * @param RTTestCaseFilePath
+	 */
+
+	public RT_test( String RTTestCaseFilePath )
+	{
+		CMDTree = new LinkedList< CommandNode >();
+		TestCaseFile = new File( RTTestCaseFilePath );
+		if ( !TestCaseFile.isFile() )
+		{
+			RTTestLog.logToConsole( "RTTestCaseFile not exist.",
+					LogCollector.ERROR );
+			isTestReady = false;
+			return;
+		}
+		try
+		{
+			cmdt = new MakeCommandTree();
+			isTestReady = true;
+		}
+		catch ( CreateCMDTreeErrorException e )
+		{
+			// TODO Auto-generated catch block
+			isTestReady = false;
+			e.printStackTrace();
+		}
+		String TestCaseFileName = TestCaseFile.getName();
+		String TestCaseLogFileName = TestCaseFileName.split( "\\." )[ 0 ]
+				+ ".log";
+		sshLog = new File( logDir + "/" + TestCaseLogFileName );
+	}
+
+	/**
+	 * 开始执行测试，便利命令树，并且执行命令树节点命令
+	 * 
+	 */
+	public void startTest()
+	{
+		ExecuteCommandTree();
+		if ( this.hostNode != null )
+			hostNode.SSHUnInit();
+	}
+
+	/**
+	 * 遍历执行CMDTree，并且生成log文件。
+	 */
+	private void ExecuteCommandTree()
+	{
+		CommandNode node = CMDTree.poll();
+		while ( node != null )
+		{
+			node.execute();
+			node = CMDTree.poll();
+		}
+	}
+
+	/**
+	 * 将logStr追加到sshlog中。
+	 * 
+	 * @param logStr
+	 */
+	private void sshLogToFile( String logStr )
+	{
+		if ( !sshLog.exists() )
+		{
+			// 创建文件
+			try
+			{
+				if ( !sshLog.createNewFile() )
+				{
+					RTTestLog.logToConsole( "log文件创建失败", LogCollector.ERROR );
+					isTestReady = false;
+					return;
+				}
+			}
+			catch ( IOException e )
+			{
+				RTTestLog.logToConsole( "文件IO异常。\n", LogCollector.ERROR );
+				isTestReady = false;
+				e.printStackTrace();
+			}
+		}
+		try
+		{
+			if ( fos == null )
+				fos = new FileOutputStream( sshLog );
+			else
+				fos = new FileOutputStream( sshLog, true );
+			byte[] stb = logStr.getBytes();
+			fos.write( stb );
+		}
+		catch ( FileNotFoundException e )
+		{
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		catch ( IOException e )
+		{
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		finally
+		{
+			try
+			{
+				fos.close();
+			}
+			catch ( IOException e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		// 将logStr追加到sshLog中
+	}
+
+	/**
+	 * 节点类，存储节点相关信息：ip，username，password，ssh
+	 * 
+	 * @author gaot.fnst
+	 * 
+	 */
 
 	private class Node
 	{
@@ -88,60 +220,8 @@ public class RT_test
 				// shell命令
 				// 缺少输出处理
 				String sshOutput = ssh.executeCommand( Command );
-				System.out.print( "#" + sshOutput );
+				sshLogToFile( sshOutput );
 			}
-		}
-	}
-
-	/**
-	 * 根据RTTestcaseFilePath路径指示文件，构造命令树 如果没有异常，则设置isTestReady为True
-	 * 否则设置isTestReady为False
-	 * 
-	 * 待测试脚本路径。
-	 * 
-	 * @param RTTestCaseFilePath
-	 */
-
-	public RT_test( String RTTestCaseFilePath )
-	{
-		CMDTree = new LinkedList< CommandNode >();
-		try
-		{
-			cmdt = new MakeCommandTree( RTTestCaseFilePath );
-			isTestReady = true;
-		}
-		catch ( CreateCMDTreeErrorException e )
-		{
-			// TODO Auto-generated catch block
-			isTestReady = false;
-			e.printStackTrace();
-		}
-	}
-
-	/**
-	 * 开始执行测试，便利命令树，并且执行命令树节点命令
-	 * 
-	 */
-	public void startTest()
-	{
-		if ( isTestReady )
-		{
-			ExecuteCommandTree();
-			if ( this.node != null )
-				node.SSHUnInit();
-		}
-	}
-
-	/**
-	 * 遍历执行CMDTree。
-	 */
-	private void ExecuteCommandTree()
-	{
-		CommandNode node = CMDTree.poll();
-		while ( node != null )
-		{
-			node.execute();
-			node = CMDTree.poll();
 		}
 	}
 
@@ -181,7 +261,10 @@ public class RT_test
 		 */
 		public void execute()
 		{
-			System.out.print( SimpleUtil.generateTimestamp( SimpleUtil.TIMESTAMP_ALL )+"\n");
+			// System.out.print( SimpleUtil.generateTimestamp(
+			// SimpleUtil.TIMESTAMP_ALL )+"\n");
+			if ( !isTestReady ) // 如果测试没有准备好，不进行任何操作
+				return;
 			switch ( NodeStyle )
 			{
 			case COMMANDNODE:
@@ -205,18 +288,16 @@ public class RT_test
 						String hostIp = nodeInfoList[ 1 ];
 						String userName = nodeInfoList[ 2 ];
 						String passWord = nodeInfoList[ 3 ];
-						if ( node != null )
-							node.SSHUnInit();
-						node = new Node( hostIp, userName, passWord );
-						node.SSHInit();
+						if ( hostNode != null )
+							hostNode.SSHUnInit();
+						hostNode = new Node( hostIp, userName, passWord );
+						hostNode.SSHInit();
 					}
 				}
 				else
 				{
-					node.executeCommand( this.NodeData );
+					hostNode.executeCommand( this.NodeData );
 				}
-
-				// System.out.print( this.NodeData + "\n" );
 				break;
 			}
 			case IFNODE:
@@ -298,7 +379,7 @@ public class RT_test
 			// 测试版本
 			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
 			{
-				if ( this.NodeData.equals( "true" ) )
+				/*if ( this.NodeData.equals( "true" ) )
 				{
 					this.Switch = true;
 					return true;
@@ -307,6 +388,13 @@ public class RT_test
 				{
 					this.Switch = false;
 					return true;
+				}*/
+				
+				String conditionCommand = this.NodeData+"&>/dev/null;echo $?";
+				String sshOutput = null;
+				if(hostNode != null)
+				{
+					//根据ssh命令返回值进行操作
 				}
 
 				return false;
@@ -337,8 +425,6 @@ public class RT_test
 	private class MakeCommandTree
 	{
 
-		private File TestCaseFile = null;
-
 		private Stack< CommandNode > IfStack = null;
 		private Stack< CommandNode > WhileStack = null;
 
@@ -349,8 +435,7 @@ public class RT_test
 
 		private HashMap< String, Integer > CMDLIST = null;
 
-		public MakeCommandTree( String TestCaseFilePath )
-				throws CreateCMDTreeErrorException
+		public MakeCommandTree() throws CreateCMDTreeErrorException
 		{
 			CMDLIST = new HashMap< String, Integer >();
 			IfStack = new Stack< CommandNode >();
@@ -365,7 +450,6 @@ public class RT_test
 
 			try
 			{
-				TestCaseFile = new File( TestCaseFilePath );
 				FileInputStream fis = new FileInputStream( TestCaseFile );
 				InputStreamReader isr = new InputStreamReader( fis, "UTF-8" );
 				BufferedReader br = new BufferedReader( isr );

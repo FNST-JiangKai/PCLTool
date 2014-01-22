@@ -117,6 +117,7 @@ public class RT_test
 					isTestReady = false;
 					return;
 				}
+				RTTestLog.logToConsole( "log文件创建成功。\n", LogCollector.INFO );
 			}
 			catch ( IOException e )
 			{
@@ -131,6 +132,8 @@ public class RT_test
 				fos = new FileOutputStream( sshLog );
 			else
 				fos = new FileOutputStream( sshLog, true );
+			RTTestLog.logToConsole( "log写入：" + logStr + "\n",
+					LogCollector.INFO );
 			byte[] stb = logStr.getBytes();
 			fos.write( stb );
 		}
@@ -183,6 +186,11 @@ public class RT_test
 			// ssh.init( this.hostIP, sshPort , this.userName, this.passWord );
 		}
 
+		public String getSSHOutput( String command )
+		{
+			return ssh.executeCommand( command );
+		}
+
 		public void SSHInit()
 		{
 			if ( ssh != null )
@@ -203,7 +211,7 @@ public class RT_test
 				ssh.uninit();
 			}
 			else
-			{ 
+			{
 				RTTestLog.logToConsole( "节点没有初始化。", LogCollector.ERROR );
 				return;
 			}
@@ -379,32 +387,41 @@ public class RT_test
 			// 测试版本
 			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
 			{
-				/*if ( this.NodeData.equals( "true" ) )
-				{
-					this.Switch = true;
-					return true;
-				}
-				if ( this.NodeData.equals( "false" ) )
-				{
-					this.Switch = false;
-					return true;
-				}*/
-				
-				String conditionCommand = this.NodeData+"&>/dev/null;echo $?";
+				String conditionCommand = this.NodeData + " &>/dev/null;echo $?";
 				String sshOutput = null;
-				if(hostNode != null)
+				if ( hostNode != null )
 				{
-					//根据ssh命令返回值进行操作
+					sshOutput = hostNode.getSSHOutput( conditionCommand );
 				}
-
-				return false;
-				// 暂不支持while
-				// if ( this.NodeData.startsWith( "loop" ) )
-				// {
-				// counter = this.NodeData.replaceAll( "loop", "" );
-				// return true;
-				// }
-
+				else
+				{
+					isTestReady = false;
+					RTTestLog.logToConsole( "host ssh channel not open.\n",
+							LogCollector.ERROR );
+					return false;
+				}
+				String outputList[] = sshOutput.split( "\n" );
+				System.out.print( sshOutput );
+				if ( outputList.length != 3 )
+				{
+					RTTestLog.logToConsole( "set Switch failed.",
+							LogCollector.ERROR );
+					isTestReady = false;
+					return false;
+				}
+				else
+				{
+					if ( outputList[ 2 ].startsWith( "0" ) )
+					{
+						this.Switch = true;
+						return true;
+					}
+					else
+					{
+						this.Switch = false;
+						return true;
+					}
+				}
 			}
 			else
 			{
@@ -513,7 +530,7 @@ public class RT_test
 		private void AddCommandToCMDTree( String Command )
 				throws CreateCMDTreeErrorException
 		{
-			Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
+			//Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
 			Command = Command.trim();// 删除命令前后空格
 			String CommandList[] = Command.split( " " ); // 将命令按空格区分
 			if ( CommandList.length == 0 ) // 如果命令只有一个空格
@@ -527,21 +544,10 @@ public class RT_test
 				case 1: // if
 				{
 					// 检查if语句是否合法
-					if ( CommandList.length != 2 )
-					{
-						RTTestLog.logToConsole( "Synax Error: " + Command,
-								LogCollector.ERROR );
-						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
-								"语法错误\n" );
-						throw exception;
-					}
-					else
-					{
-						String Condition = CommandList[ 1 ];
-						CommandNode node = new CommandNode( IFNODE, Condition );
-						node.Switch = true; // if 语句块初始化
-						AddNodeToQueue( node );
-					}
+					String Condition = Command.replaceFirst( "if ", "" );
+					CommandNode node = new CommandNode( IFNODE, Condition );
+					node.Switch = true; // if 语句块初始化
+					AddNodeToQueue( node );
 					break;
 				}
 				case 2: // else
@@ -602,22 +608,10 @@ public class RT_test
 				}
 				case 4: // while
 				{
-					if ( CommandList.length != 2 )
-					{
-						RTTestLog.logToConsole( "Synax Error: " + Command,
-								LogCollector.ERROR );
-						CreateCMDTreeErrorException exception = new CreateCMDTreeErrorException(
-								"while语法错误" );
-						throw exception;
-					}
-					else
-					{
-						String Condition = CommandList[ 1 ];
-						CommandNode node = new CommandNode( WHILENODE,
-								Condition );
-						node.Switch = true;
-						AddNodeToQueue( node );
-					}
+					String Condition = Command.replaceFirst( "while ", "" );
+					CommandNode node = new CommandNode( WHILENODE, Condition );
+					node.Switch = true;
+					AddNodeToQueue( node );
 					break;
 				}
 				case 5: // endwhile
@@ -809,4 +803,3 @@ public class RT_test
 		}
 	}
 }
-

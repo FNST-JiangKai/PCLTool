@@ -132,8 +132,8 @@ public class RT_test
 				fos = new FileOutputStream( sshLog );
 			else
 				fos = new FileOutputStream( sshLog, true );
-			RTTestLog.logToConsole( "log写入：" + logStr + "\n",
-					LogCollector.INFO );
+			RTTestLog
+					.logToConsole( "log写入：" + logStr + "\n", LogCollector.INFO );
 			byte[] stb = logStr.getBytes();
 			fos.write( stb );
 		}
@@ -186,16 +186,27 @@ public class RT_test
 			// ssh.init( this.hostIP, sshPort , this.userName, this.passWord );
 		}
 
+		/**
+		 * 获取ssh输出。不写log。
+		 * ssh命令
+		 * @param command
+		 * 命令输出
+		 * @return
+		 */
 		public String getSSHOutput( String command )
 		{
 			return ssh.executeCommand( command );
 		}
 
+		/**
+		 * 节点ssh连接初始化。
+		 */
 		public void SSHInit()
 		{
 			if ( ssh != null )
 			{
 				ssh.init( this.hostIP, sshPort, this.userName, this.passWord );
+				ssh.executeCommand( "\n" );	//执行空命令，消除首次登陆字符串对判断条件的影响。
 			}
 			else
 			{
@@ -204,6 +215,9 @@ public class RT_test
 			}
 		}
 
+		/**
+		 * 关闭ssh连接。
+		 */
 		public void SSHUnInit()
 		{
 			if ( ssh != null )
@@ -217,6 +231,10 @@ public class RT_test
 			}
 		}
 
+		/**
+		 * 执行命令，并且将ssh输出写入log文件中。
+		 * @param Command
+		 */
 		public void executeCommand( String Command )
 		{
 			if ( Command.startsWith( "#@" ) ) // java命令
@@ -387,7 +405,8 @@ public class RT_test
 			// 测试版本
 			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
 			{
-				String conditionCommand = this.NodeData + " &>/dev/null;echo $?";
+				String conditionCommand = this.NodeData
+						+ " &>/dev/null;echo $?";
 				String sshOutput = null;
 				if ( hostNode != null )
 				{
@@ -402,7 +421,7 @@ public class RT_test
 				}
 				String outputList[] = sshOutput.split( "\n" );
 				System.out.print( sshOutput );
-				if ( outputList.length != 3 )
+				if ( outputList.length != 2 )
 				{
 					RTTestLog.logToConsole( "set Switch failed.",
 							LogCollector.ERROR );
@@ -411,7 +430,7 @@ public class RT_test
 				}
 				else
 				{
-					if ( outputList[ 2 ].startsWith( "0" ) )
+					if ( outputList[ 1 ].startsWith( "0" ) )	//判断返回值是不是0
 					{
 						this.Switch = true;
 						return true;
@@ -530,7 +549,7 @@ public class RT_test
 		private void AddCommandToCMDTree( String Command )
 				throws CreateCMDTreeErrorException
 		{
-			//Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
+			// Command = Command.split( "\n" )[ 0 ]; // 删除结尾换行符
 			Command = Command.trim();// 删除命令前后空格
 			String CommandList[] = Command.split( " " ); // 将命令按空格区分
 			if ( CommandList.length == 0 ) // 如果命令只有一个空格

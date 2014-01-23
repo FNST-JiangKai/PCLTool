@@ -76,7 +76,7 @@ public class RT_test
 	}
 
 	/**
-	 * 开始执行测试，便利命令树，并且执行命令树节点命令
+	 * 开始执行测试，遍历命令树，并且执行命令树节点命令
 	 * 
 	 */
 	public void startTest()
@@ -187,8 +187,8 @@ public class RT_test
 		}
 
 		/**
-		 * 获取ssh输出。不写log。
-		 * ssh命令
+		 * 获取ssh输出。不写log。 ssh命令
+		 * 
 		 * @param command
 		 * 命令输出
 		 * @return
@@ -206,7 +206,7 @@ public class RT_test
 			if ( ssh != null )
 			{
 				ssh.init( this.hostIP, sshPort, this.userName, this.passWord );
-				ssh.executeCommand( "\n" );	//执行空命令，消除首次登陆字符串对判断条件的影响。
+				ssh.executeCommand( "\n" ); // 执行空命令，消除首次登陆字符串对判断条件的影响。
 			}
 			else
 			{
@@ -233,6 +233,7 @@ public class RT_test
 
 		/**
 		 * 执行命令，并且将ssh输出写入log文件中。
+		 * 
 		 * @param Command
 		 */
 		public void executeCommand( String Command )
@@ -273,6 +274,13 @@ public class RT_test
 		// 执行命令树使用来标识条件的真假
 		public Boolean Switch = true; // 默认只有TrueCmdTree
 
+		// 命令类型
+		private final int SSH_INIT_ERROR = 0;
+		private final int SSH_INIT = 1;
+		private final int LOCAL_COMMAND = 2;
+		private final int JAVA_COMMAND = 3;
+		private final int SSH_COMMAND = 4;
+
 		public CommandNode( byte NodeStyle, String NodeData )
 		{
 			this.NodeStyle = NodeStyle;
@@ -283,15 +291,42 @@ public class RT_test
 		}
 
 		/**
-		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树
-		 * 1. 如果节点是普通节点，则执行命令
-		 * 		a. ssh命令调用hostNode.executeCommand()
-		 * 		b. cmd命令调用localNode.executeCommand()
-		 * 		c. java命令调用javaNode.executeCommand()
-		 * 2. 如果节点是IF节点，根据判断条件选择递归执行TrueCMDTree或者FalseCMDTree
-		 * 		a. 如果判断条件是ssh命令，添加 &>/dev/null;echo $?发送，获取结果
-		 * 		b. 如果判断条件是java命令，调用java程序设置switch
-		 * 3. 如果节点是WHILE节点，根据判断条件选择递归执行TrueCMDTree或者完成WHILE节点
+		 * 判断命令类型
+		 * 
+		 * @param Command
+		 * 
+		 * SSH_INIT_ERROR ->命令格式错误 SSH_INIT ->ssh初始化 LOCAL_COMMAND ->本地命令
+		 * JAVA_COMMAND ->java命令 SSH_COMMAND ->ssh命令
+		 * @return
+		 */
+		private int getCommandStyle( String Command )
+		{
+			if ( Command.startsWith( "@ssh" ) )
+			{
+				String hostInfoList[] = Command.split( ":" );
+				if ( hostInfoList.length == 4 )
+					return SSH_INIT;
+				else
+					return SSH_INIT_ERROR;
+			}
+			if ( Command.startsWith( "@local" ) )
+			{
+				return LOCAL_COMMAND;
+			}
+			if ( Command.startsWith( "@java" ) )
+			{
+				return JAVA_COMMAND;
+			}
+			return SSH_COMMAND;
+		}
+
+		/**
+		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树 1. 如果节点是普通节点，则执行命令 a.
+		 * ssh命令调用hostNode.executeCommand() b. cmd命令调用localNode.executeCommand()
+		 * c. java命令调用javaNode.executeCommand() 2.
+		 * 如果节点是IF节点，根据判断条件选择递归执行TrueCMDTree或者FalseCMDTree a. 如果判断条件是ssh命令，添加
+		 * &>/dev/null;echo $?发送，获取结果 b. 如果判断条件是java命令，调用java程序设置switch 3.
+		 * 如果节点是WHILE节点，根据判断条件选择递归执行TrueCMDTree或者完成WHILE节点
 		 */
 		public void execute()
 		{
@@ -303,47 +338,58 @@ public class RT_test
 			{
 			case COMMANDNODE:
 			{
-				/**
-				 * 1. ssh命令 2. shell命令----|__>相同处理 3. java命令-----|
-				 */
-				// #@ssh:ip:user:password
-
-				if ( this.NodeData.startsWith( "#@ssh" ) )
+				switch ( this.getCommandStyle( this.NodeData ) )
+				{
+				case SSH_INIT: // ssh连接初始化
 				{
 					String nodeInfoList[] = this.NodeData.split( ":" );
-					if ( nodeInfoList.length != 4 )
+					// 获取命令类型过程中已经检查过语法合法性了
+					String hostIp = nodeInfoList[ 1 ];
+					String userName = nodeInfoList[ 2 ];
+					String passWord = nodeInfoList[ 3 ];
+					if ( hostNode != null )
+						hostNode.SSHUnInit();
+					hostNode = new Node( hostIp, userName, passWord );
+					hostNode.SSHInit();
+					break;
+				}
+				case LOCAL_COMMAND: // 执行本地命令
+				{
+					System.out.print( "@local\n" );
+					System.out.print( this.NodeData );
+					break;
+				}
+				case JAVA_COMMAND: // 执行java命令（java函数）
+				{
+					System.out.print( "@java\n" );
+					System.out.print( this.NodeData );
+					break;
+				}
+				case SSH_COMMAND: // 执行普通ssh命令
+				{
+					if ( hostNode == null )
 					{
-						RTTestLog.logToConsole( "ssh语法错误：" + this.NodeData,
+						RTTestLog.logToConsole( "ssh connect not initial.\n",
 								LogCollector.ERROR );
 						return;
 					}
-					else
-					{
-						String hostIp = nodeInfoList[ 1 ];
-						String userName = nodeInfoList[ 2 ];
-						String passWord = nodeInfoList[ 3 ];
-						if ( hostNode != null )
-							hostNode.SSHUnInit();
-						hostNode = new Node( hostIp, userName, passWord );
-						hostNode.SSHInit();
-					}
+					hostNode.executeCommand( this.NodeData ); // ssh命令
+					break;
 				}
-				else
+				case SSH_INIT_ERROR: // ssh初始化语法错误
 				{
-					if(this.NodeData.startsWith( "@local:" ))		//本地命令
-					{
-						System.out.print( "@local\n" );
-						System.out.print( this.NodeData );
-					}
-					else{
-						if(this.NodeData.startsWith( "@java:" ))		//java命令
-						{
-							System.out.print( "@java\n" );
-							System.out.print( this.NodeData );
-						}
-						else
-							hostNode.executeCommand( this.NodeData );
-						}
+					RTTestLog.logToConsole( "ssh语法错误：" + this.NodeData,
+							LogCollector.ERROR );
+					isTestReady = false;
+					return;
+				}
+				default: // 未支持的语法
+				{
+					RTTestLog.logToConsole( "未支持的语法类型。" + this.NodeData,
+							LogCollector.ERROR );
+					isTestReady = false;
+					return;
+				}
 				}
 				break;
 			}
@@ -426,42 +472,52 @@ public class RT_test
 			// 测试版本
 			if ( this.NodeStyle == IFNODE || this.NodeStyle == WHILENODE )
 			{
-				String conditionCommand = this.NodeData
-						+ " &>/dev/null;echo $?";
-				String sshOutput = null;
-				if ( hostNode != null )
+				if ( this.getCommandStyle( this.NodeData ) == this.SSH_COMMAND )
 				{
-					sshOutput = hostNode.getSSHOutput( conditionCommand );
-				}
-				else
-				{
-					isTestReady = false;
-					RTTestLog.logToConsole( "host ssh channel not open.\n",
-							LogCollector.ERROR );
-					return false;
-				}
-				String outputList[] = sshOutput.split( "\n" );
-				System.out.print( sshOutput );
-				if ( outputList.length != 2 )
-				{
-					RTTestLog.logToConsole( "set Switch failed.",
-							LogCollector.ERROR );
-					isTestReady = false;
-					return false;
-				}
-				else
-				{
-					if ( outputList[ 1 ].startsWith( "0" ) )	//判断返回值是不是0
+					String conditionCommand = this.NodeData
+							+ " &>/dev/null;echo $?";
+					String sshOutput = null;
+					if ( hostNode != null )
 					{
-						this.Switch = true;
-						return true;
+						sshOutput = hostNode.getSSHOutput( conditionCommand );
 					}
 					else
 					{
-						this.Switch = false;
-						return true;
+						isTestReady = false;
+						RTTestLog.logToConsole( "host ssh channel not open.\n",
+								LogCollector.ERROR );
+						return false;
+					}
+					String outputList[] = sshOutput.split( "\n" );
+					System.out.print( sshOutput );
+					if ( outputList.length != 2 )
+					{
+						RTTestLog.logToConsole( "set Switch failed.",
+								LogCollector.ERROR );
+						isTestReady = false;
+						return false;
+					}
+					else
+					{
+						if ( outputList[ 1 ].startsWith( "0" ) ) // 判断返回值是不是0
+						{
+							this.Switch = true;
+							return true;
+						}
+						else
+						{
+							this.Switch = false;
+							return true;
+						}
 					}
 				}
+				if ( this.getCommandStyle( this.NodeData ) == this.JAVA_COMMAND )
+				{
+					//TODO:
+					return true;
+				}
+				
+				return false;//不支持其他命令格式
 			}
 			else
 			{

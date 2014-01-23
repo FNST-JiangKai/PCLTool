@@ -11,8 +11,8 @@ import java.util.*;
  * 		2. 完善异常抛出 -->完成
  * 		3. ssh调试
  * 			a. 修改命令执行方式 -->完成
- * 			b. 修改switch设置方式
- * 		4. 修改log输出
+ * 			b. 修改switch设置方式-->完成
+ * 		4. 修改log输出--完成
  * */
 
 public class RT_test
@@ -284,6 +284,14 @@ public class RT_test
 
 		/**
 		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树
+		 * 1. 如果节点是普通节点，则执行命令
+		 * 		a. ssh命令调用hostNode.executeCommand()
+		 * 		b. cmd命令调用localNode.executeCommand()
+		 * 		c. java命令调用javaNode.executeCommand()
+		 * 2. 如果节点是IF节点，根据判断条件选择递归执行TrueCMDTree或者FalseCMDTree
+		 * 		a. 如果判断条件是ssh命令，添加 &>/dev/null;echo $?发送，获取结果
+		 * 		b. 如果判断条件是java命令，调用java程序设置switch
+		 * 3. 如果节点是WHILE节点，根据判断条件选择递归执行TrueCMDTree或者完成WHILE节点
 		 */
 		public void execute()
 		{
@@ -322,7 +330,20 @@ public class RT_test
 				}
 				else
 				{
-					hostNode.executeCommand( this.NodeData );
+					if(this.NodeData.startsWith( "@local:" ))		//本地命令
+					{
+						System.out.print( "@local\n" );
+						System.out.print( this.NodeData );
+					}
+					else{
+						if(this.NodeData.startsWith( "@java:" ))		//java命令
+						{
+							System.out.print( "@java\n" );
+							System.out.print( this.NodeData );
+						}
+						else
+							hostNode.executeCommand( this.NodeData );
+						}
 				}
 				break;
 			}

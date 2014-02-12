@@ -290,6 +290,7 @@ public class RT_test
 		private final int LOCAL_COMMAND = 2;
 		private final int JAVA_COMMAND = 3;
 		private final int SSH_COMMAND = 4;
+		private final int ERROR_LOCAL_COMMAND = 5;
 
 		public CommandNode( byte NodeStyle, String NodeData )
 		{
@@ -314,13 +315,16 @@ public class RT_test
 			if ( Command.startsWith( "@ssh" ) )
 			{
 				String hostInfoList[] = Command.split( ":" );
-				if ( hostInfoList.length == 4 )
+				if ( hostInfoList.length == 5 )
 					return SSH_INIT;
 				else
 					return SSH_INIT_ERROR;
 			}
 			if ( Command.startsWith( "@local" ) )
 			{
+				String commandlst[] = Command.split( ":" );
+				if(commandlst.length != 3 && commandlst.length != 2)
+					return ERROR_LOCAL_COMMAND;
 				return LOCAL_COMMAND;
 			}
 			if ( Command.startsWith( "@java" ) )
@@ -371,8 +375,26 @@ public class RT_test
 				}
 				case LOCAL_COMMAND: // 执行本地命令
 				{
-					System.out.print( "@local\n" );
-					System.out.print( this.NodeData );
+					//System.out.print( "@local\n" );
+					//System.out.print( this.NodeData );
+					String commandlst[] = this.NodeData.split( ":" );
+					String command =commandlst[1];
+					String args = "";
+					if (commandlst.length == 3)
+						args = commandlst[2];
+					LocalConsole lc = new LocalConsole(command,args);
+					lc.executeCommand();
+					//输出？
+					RTTestLog.logToConsole( "LocalCommand Output:\n",
+							LogCollector.INFO );
+					String output = lc.getOutput();
+					RTTestLog.logToConsole( output,
+							LogCollector.INFO );
+					int returnValue = lc.getReturnValue();
+					RTTestLog.logToConsole( "LocalCommand ReturnCode:\n",
+							LogCollector.INFO );
+					RTTestLog.logToConsole( String.valueOf(returnValue),
+							LogCollector.INFO );
 					break;
 				}
 				case JAVA_COMMAND: // 执行java命令（java函数）
@@ -397,6 +419,13 @@ public class RT_test
 				case SSH_INIT_ERROR: // ssh初始化语法错误
 				{
 					RTTestLog.logToConsole( "ssh语法错误：" + this.NodeData,
+							LogCollector.ERROR );
+					isTestReady = false;
+					return;
+				}
+				case ERROR_LOCAL_COMMAND:
+				{
+					RTTestLog.logToConsole( "本地命令语法错误：" + this.NodeData,
 							LogCollector.ERROR );
 					isTestReady = false;
 					return;

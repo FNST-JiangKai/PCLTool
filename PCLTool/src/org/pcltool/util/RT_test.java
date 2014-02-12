@@ -177,14 +177,24 @@ public class RT_test
 		private int sshPort = 22;
 		private SshConsole ssh = null;
 
-		public Node( String hostIP, String userName, String passWord )
+		public Node( String hostIP, int sshPort, String userName,
+				String passWord )
 		{
 			this.hostIP = hostIP;
 			this.userName = userName;
 			this.passWord = passWord;
+			this.sshPort = sshPort;
 			ssh = new SshConsole();
 			// ssh.init( this.hostIP, sshPort , this.userName, this.passWord );
 		}
+
+		//public Node(String hostIP,String userName, String passWord)
+		//{
+		//	this.hostIP = hostIP;
+		//	this.userName = userName;
+		//	this.passWord = passWord;
+		//	ssh = new SshConsole();
+		//}
 
 		/**
 		 * 获取ssh输出。不写log。 ssh命令
@@ -321,14 +331,12 @@ public class RT_test
 		}
 
 		/**
-		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树 
-		 * 1. 如果节点是普通节点，则执行命令 
-		 * 		a.ssh命令调用hostNode.executeCommand() 
-		 * 		b. cmd命令调用localNode.executeCommand()
-		 * 		c. java命令调用javaNode.executeCommand() 
-		 * 2.如果节点是IF节点，根据判断条件选择递归执行TrueCMDTree或者FalseCMDTree 
-		 * 		a. 如果判断条件是ssh命令，添加 &>/dev/null;echo $?发送，获取结果 
-		 * 		b. 如果判断条件是java命令，调用java程序设置switch 
+		 * 执行当前节点，如果节点是判断节点，则递归执行节点中所有命令树 1. 如果节点是普通节点，则执行命令
+		 * a.ssh命令调用hostNode.executeCommand() b.
+		 * cmd命令调用localNode.executeCommand() c.
+		 * java命令调用javaNode.executeCommand()
+		 * 2.如果节点是IF节点，根据判断条件选择递归执行TrueCMDTree或者FalseCMDTree a. 如果判断条件是ssh命令，添加
+		 * &>/dev/null;echo $?发送，获取结果 b. 如果判断条件是java命令，调用java程序设置switch
 		 * 3.如果节点是WHILE节点，根据判断条件选择递归执行TrueCMDTree或者完成WHILE节点
 		 */
 		public void execute()
@@ -352,7 +360,12 @@ public class RT_test
 					String passWord = nodeInfoList[ 3 ];
 					if ( hostNode != null )
 						hostNode.SSHUnInit();
-					hostNode = new Node( hostIp, userName, passWord );
+					int sshPort = 22;
+					if ( nodeInfoList.length == 5 )
+					{
+						sshPort = Integer.valueOf( nodeInfoList[ 4 ] );
+					}
+					hostNode = new Node( hostIp, sshPort, userName, passWord );
 					hostNode.SSHInit();
 					break;
 				}
@@ -364,8 +377,10 @@ public class RT_test
 				}
 				case JAVA_COMMAND: // 执行java命令（java函数）
 				{
-					System.out.print( "@java\n" );
-					System.out.print( this.NodeData );
+					JavaConsole jc = new JavaConsole( hostNode.hostIP,
+							hostNode.sshPort, hostNode.userName,
+							hostNode.passWord );
+					jc.executeCommand( this.NodeData );
 					break;
 				}
 				case SSH_COMMAND: // 执行普通ssh命令

@@ -107,7 +107,7 @@ public class ScpConsole
 			int ret = ClientSession.WAIT_AUTH;
 			while ( (ret & ClientSession.WAIT_AUTH) != 0 )
 			{
-				sshSession.authPassword( "root", "cscenter" );
+				sshSession.authPassword( username, password );
 				ret = sshSession.waitFor( ClientSession.AUTHED
 						| ClientSession.CLOSED | ClientSession.TIMEOUT, 0 );
 			}
